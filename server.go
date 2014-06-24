@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/httputil"
 	"reflect"
 	"regexp"
 	"strings"
@@ -20,8 +22,36 @@ var (
 
 // Protocol defining how responses and errors are encoded.
 type Protocol interface {
-	EncodeResponse(w http.ResponseWriter, r *http.Request, code int, err error, payload interface{})
+	WriteHeader(w http.ResponseWriter, r *http.Request, status int)
+	EncodeResponse(w http.ResponseWriter, r *http.Request, status int, err error, data interface{})
 	NotFound(w http.ResponseWriter, r *http.Request)
+}
+
+type ChunkedResponseWriter struct {
+	w  http.ResponseWriter
+	cw io.WriteCloser
+}
+
+func NewChunkedResponseWriter(w http.ResponseWriter) *ChunkedResponseWriter {
+	return &ChunkedResponseWriter{
+		w:  w,
+		cw: httputil.NewChunkedWriter(w),
+	}
+}
+
+func (c *ChunkedResponseWriter) Header() http.Header {
+	return c.w.Header()
+}
+
+func (c *ChunkedResponseWriter) Write(b []byte) (int, error) {
+	return c.cw.Write(b)
+}
+func (c *ChunkedResponseWriter) WriteHeader(status int) {
+	c.WriteHeader(status)
+}
+
+func (c *ChunkedResponseWriter) Close() error {
+	return c.cw.Close()
 }
 
 type HTTPStatus struct {
@@ -111,60 +141,102 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(result) != 2 {
 		panic(fmt.Errorf("handler method %s.%s should return (<response>, <error>)", match.method.Type(), match.route.Name))
 	}
-	w.Header().Set("Content-Type", "application/json")
-
 	if match.route.StreamingResponse {
-		w.WriteHeader(http.StatusOK)
-		ec := reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: result[2],
-		}
-		rc := reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: result[1],
-		}
-		cases := []reflect.SelectCase{rc, ec}
-		for {
-			if chosen, recv, ok := reflect.Select(cases); ok {
-				switch chosen {
-				case 0: // value
-					println(recv.String())
+		s.handleStream(w, r, result[0], result[1])
+	} else {
+		s.handleScalar(w, r, result[0], result[1])
+	}
+}
 
-				case 1: // error
+func (s *Server) handleScalar(w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerr reflect.Value) {
+	status := http.StatusOK
+	var data interface{}
+	var err error
+	if !rdata.IsNil() {
+		data = rdata.Interface()
+	}
+
+	// If we have an error...
+	if !rerr.IsNil() {
+		err = rerr.Interface().(error)
+		status, err = decodeError(err)
+		if err != nil {
+			data = nil
+		}
+	}
+	s.protocol.WriteHeader(w, r, status)
+	s.protocol.EncodeResponse(w, r, status, err, data)
+
+}
+
+func (s *Server) writeResponse(w http.ResponseWriter, r *http.Request, status int, err error, data interface{}) {
+	s.protocol.WriteHeader(w, r, status)
+	s.protocol.EncodeResponse(w, r, status, err, data)
+}
+
+func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
+	fw, ok := w.(http.Flusher)
+	if !ok {
+		s.writeResponse(w, r, http.StatusInternalServerError, errors.New("HTTP writer does not support flushing"), nil)
+		return
+	}
+
+	cn, ok := w.(http.CloseNotifier)
+	if !ok {
+		s.writeResponse(w, r, http.StatusInternalServerError, errors.New("HTTP writer does not support close notifications"), nil)
+		return
+	}
+
+	s.protocol.WriteHeader(w, r, http.StatusOK)
+	fw.Flush()
+
+	cw := NewChunkedResponseWriter(w)
+	defer cw.Close()
+
+	rc := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: rdata}
+	ec := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: rerrs}
+	nc := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(cn.CloseNotify())}
+	cases := []reflect.SelectCase{rc, ec, nc}
+	for {
+		if chosen, recv, ok := reflect.Select(cases); ok {
+			switch chosen {
+			case 0: // value
+				data := recv.Interface()
+				if data == nil {
+					return
 				}
-			} else {
+				s.protocol.EncodeResponse(cw, r, http.StatusOK, nil, data)
+				fw.Flush()
+
+			case 1: // error
+				status, err := decodeError(recv.Interface().(error))
+				s.protocol.EncodeResponse(cw, r, status, err, nil)
+				return
+
+			case 2: // CloseNotifier
 				return
 			}
+		} else {
+			return
+		}
+	}
+}
+
+func decodeError(err error) (int, error) {
+	status := http.StatusOK
+	// Check if it's a HTTPStatus error, in which case check the status code.
+	if st, ok := err.(*HTTPStatus); ok {
+		status = st.Status
+		// If it's not an error, clear the error value so we don't return an error value.
+		if st.Status >= 200 && st.Status <= 299 {
+			err = nil
 		}
 	} else {
-		status := http.StatusOK
-		var data interface{}
-		var err error
-		if !result[0].IsNil() {
-			data = result[0].Interface()
-		}
-
-		// If we have an error...
-		if !result[1].IsNil() {
-			err = result[1].Interface().(error)
-			// Check if it's a HTTPStatus error, in which case check the status code.
-			if st, ok := err.(*HTTPStatus); ok {
-				status = st.Status
-				// If it's not an error, clear the error value so we don't return an error value.
-				if st.Status >= 200 || st.Status <= 299 {
-					err = nil
-				} else {
-					// If it *is* an error, clear the data so we don't return data.
-					data = nil
-				}
-			} else {
-				// If it's any other error type, set 500 and continue.
-				status = http.StatusInternalServerError
-				err = errors.New("internal server error")
-			}
-		}
-		s.protocol.EncodeResponse(w, r, status, err, data)
+		// If it's any other error type, set 500 and continue.
+		status = http.StatusInternalServerError
+		err = errors.New("internal server error")
 	}
+	return status, err
 }
 
 func (s *Server) match(r *http.Request) (*routeMatch, Params) {
