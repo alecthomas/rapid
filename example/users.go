@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -24,11 +26,11 @@ func (u *UserService) ListUsers() ([]*User, error) {
 }
 
 func (u *UserService) CreateUser(user *User) (interface{}, error) {
-	return nil, rapid.StatusMessage(403, "can't create users")
+	return nil, rapid.Status(403)
 }
 
 func (u *UserService) GetUser() (*User, error) {
-	return nil, rapid.StatusMessage(403, "can't retrieve user")
+	return nil, rapid.Status(403)
 }
 
 func (u *UserService) Changes() (chan int, chan error) {
@@ -45,14 +47,17 @@ func (u *UserService) Changes() (chan int, chan error) {
 }
 
 func main() {
-	schema := rapid.NewService("Users")
-	schema.Route("ListUsers").Get("/users").Response([]*User{})
-	schema.Route("GetUser").Get("/users/{id}").Response(&User{})
-	schema.Route("CreateUser").Post("/users").Request(&User{})
-	schema.Route("Changes").Get("/changes").Streaming().Response(0)
+	users := rapid.NewService("Users")
+	users.Route("ListUsers").Get("/users").Response([]*User{})
+	users.Route("GetUser").Get("/users/{id}").Response(&User{})
+	users.Route("CreateUser").Post("/users").Request(&User{})
+	users.Route("Changes").Get("/changes").Streaming().Response(0)
+
+	b, _ := json.Marshal(rapid.SchemaFromService(users))
+	fmt.Printf("%s\n", b)
 
 	service := &UserService{}
-	server, err := rapid.NewServer(schema, service)
+	server, err := rapid.NewServer(users, service)
 	if err != nil {
 		panic(err)
 	}
