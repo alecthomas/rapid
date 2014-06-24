@@ -2,11 +2,14 @@ package rapid
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
 	"regexp"
 	"strings"
+
+	"github.com/alecthomas/rapid/protocol"
 
 	"github.com/codegangsta/inject"
 )
@@ -15,7 +18,11 @@ var (
 	pathTransform = regexp.MustCompile(`{((\w+)(\.\.\.)?)}`)
 )
 
-type ErrorHandler func(w http.ResponseWriter, err string, code int)
+// Protocol defining how responses and errors are encoded.
+type Protocol interface {
+	EncodeResponse(w http.ResponseWriter, r *http.Request, code int, err error, payload interface{})
+	NotFound(w http.ResponseWriter, r *http.Request)
+}
 
 type HTTPStatus struct {
 	Status  int
@@ -44,10 +51,9 @@ type routeMatch struct {
 }
 
 type Server struct {
-	service      *Service
-	matches      []*routeMatch
-	notFound     http.Handler
-	errorHandler ErrorHandler
+	service  *Service
+	matches  []*routeMatch
+	protocol Protocol
 }
 
 func NewServer(service *Service, handler interface{}) (*Server, error) {
@@ -67,21 +73,15 @@ func NewServer(service *Service, handler interface{}) (*Server, error) {
 		})
 	}
 	s := &Server{
-		service:      service,
-		matches:      matches,
-		notFound:     (http.HandlerFunc)(http.NotFound),
-		errorHandler: http.Error,
+		service:  service,
+		matches:  matches,
+		protocol: &protocol.DefaultProtocol{},
 	}
 	return s, nil
 }
 
-func (s *Server) OnNotFound(notFound http.Handler) *Server {
-	s.notFound = notFound
-	return s
-}
-
-func (s *Server) OnError(handler ErrorHandler) *Server {
-	s.errorHandler = handler
+func (s *Server) Protocol(protocol Protocol) *Server {
+	s.protocol = protocol
 	return s
 }
 
@@ -91,7 +91,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	i.Map(r)
 	match, parts := s.match(r)
 	if match == nil {
-		s.notFound.ServeHTTP(w, r)
+		s.protocol.NotFound(w, r)
 		return
 	}
 	var req interface{}
@@ -138,21 +138,32 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		status := http.StatusOK
+		var data interface{}
+		var err error
+		if !result[0].IsNil() {
+			data = result[0].Interface()
+		}
+
+		// If we have an error...
 		if !result[1].IsNil() {
 			err = result[1].Interface().(error)
-			if s, ok := err.(*HTTPStatus); ok {
-				if s.Status < 200 || s.Status >= 300 {
-					http.Error(w, err.Error(), s.Status)
-					return
+			// Check if it's a HTTPStatus error, in which case check the status code.
+			if st, ok := err.(*HTTPStatus); ok {
+				status = st.Status
+				// If it's not an error, clear the error value so we don't return an error value.
+				if st.Status >= 200 || st.Status <= 299 {
+					err = nil
+				} else {
+					// If it *is* an error, clear the data so we don't return data.
+					data = nil
 				}
-				status = s.Status
 			} else {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				// If it's any other error type, set 500 and continue.
+				status = http.StatusInternalServerError
+				err = errors.New("internal server error")
 			}
 		}
-		w.WriteHeader(status)
-		json.NewEncoder(w).Encode(result[0].Interface())
+		s.protocol.EncodeResponse(w, r, status, err, data)
 	}
 }
 

@@ -32,11 +32,11 @@ func (u *UserService) ListUsers() ([]*User, error) {
 }
 
 func (u *UserService) CreateUser(user *User) error {
-  return rapid.Status(403, "can't create users")
+  return rapid.StatusMessage(403, "can't create users")
 }
 
 func (u *UserService) GetUser(user *User) (*User, error) {
-  return nil, rapid.Status(403, "can't retrieve user")
+  return nil, rapid.StatusMessage(403, "can't retrieve user")
 }
 ```
 
