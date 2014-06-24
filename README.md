@@ -13,8 +13,9 @@ type User struct {
 
 schema := rapid.NewService("Users")
 schema.Route("ListUsers").Get("/users").Response([]*User{})
-schema.Route("CreateUser").Post("/users").Request(&User{})
 schema.Route("GetUser").Get("/users/{id}").Response(&User{})
+schema.Route("CreateUser").Post("/users").Request(&User{})
+schema.Route("Changes").Get("/changes").Streaming().Response(0)
 ```
 
 Once your schema is defined you can create a service implementation. Each
@@ -38,11 +39,25 @@ func (u *UserService) CreateUser(user *User) error {
 func (u *UserService) GetUser(user *User) (*User, error) {
   return nil, rapid.StatusMessage(403, "can't retrieve user")
 }
+
+func (u *UserService) Changes() (chan int, chan error) {
+  dc := make(chan int)
+  ec := make(chan error)
+  go func() {
+    for i := 0; i < 10; i++ {
+      dc <- i
+      time.Sleep(time.Millisecond * 500)
+    }
+    close(dc)
+  }()
+  return dc, ec
+}
 ```
 
 Finally, bind the service definition to the implementation:
 
 ```go
 service := &UserService{}
-http.Handle("/users", rapid.NewServer(schema, service))
+server, err := rapid.NewServer(schema, service)
+http.ListenAndServe(":8080", server)
 ```
