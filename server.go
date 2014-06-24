@@ -17,6 +17,23 @@ var (
 
 type ErrorHandler func(w http.ResponseWriter, err string, code int)
 
+type HTTPStatus struct {
+	Status  int
+	Message string
+}
+
+func Status(status int) error {
+	return &HTTPStatus{status, http.StatusText(status)}
+}
+
+func StatusMessage(status int, message string) error {
+	return &HTTPStatus{status, message}
+}
+
+func (h *HTTPStatus) Error() string {
+	return h.Message
+}
+
 type Params map[string]string
 
 type routeMatch struct {

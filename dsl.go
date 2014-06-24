@@ -1,7 +1,6 @@
 package rapid
 
 import (
-	"net/http"
 	"reflect"
 
 	"github.com/codegangsta/inject"
@@ -24,23 +23,6 @@ func (s *Service) Route(name string) *Route {
 	route := newRoute(name)
 	s.Routes = append(s.Routes, route)
 	return route
-}
-
-type HTTPStatus struct {
-	Status  int
-	Message string
-}
-
-func Status(status int) error {
-	return &HTTPStatus{status, http.StatusText(status)}
-}
-
-func StatusMessage(status int, message string) error {
-	return &HTTPStatus{status, message}
-}
-
-func (h *HTTPStatus) Error() string {
-	return h.Message
 }
 
 type Route struct {
