@@ -249,16 +249,27 @@ func (s *Server) handleStream(closeNotifier chan bool, w http.ResponseWriter, r 
 		return
 	}
 
+	cw := NewChunkedResponseWriter(w)
+
+	// If we have an immediate error, return this directly in the HTTP
+	// response rather than streaming it.
+	ec := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: rerrs}
+	dc := reflect.SelectCase{Dir: reflect.SelectDefault}
+	cases := []reflect.SelectCase{dc, ec}
+	if _, recv, ok := reflect.Select(cases); ok {
+		status, err := s.protocol.TranslateError(recv.Interface().(error))
+		s.writeResponse(w, r, status, err, nil)
+		return
+	}
+
+	// No error? Flush the 200 and star the main select loop.
 	s.protocol.WriteHeader(w, r, http.StatusOK)
 	fw.Flush()
-
-	cw := NewChunkedResponseWriter(w)
 	defer cw.Close()
 
 	rc := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: rdata}
-	ec := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: rerrs}
 	nc := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(cn.CloseNotify())}
-	cases := []reflect.SelectCase{rc, ec, nc}
+	cases = []reflect.SelectCase{rc, ec, nc}
 	for {
 		if chosen, recv, ok := reflect.Select(cases); ok {
 			switch chosen {
@@ -276,11 +287,10 @@ func (s *Server) handleStream(closeNotifier chan bool, w http.ResponseWriter, r 
 				return
 
 			case 2: // CloseNotifier
+				s.log.Debug("HTTP connection closed")
 				closeNotifier <- true
 				return
 			}
-		} else {
-			return
 		}
 	}
 }
