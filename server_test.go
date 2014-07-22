@@ -63,6 +63,27 @@ func TestServerCallsMethod(t *testing.T) {
 	assert.Equal(t, "{\"s\":200,\"d\":{\"ID\":20}}\n", w.Body.String())
 }
 
+func TestPatternRegex(t *testing.T) {
+	svc := NewService("Test")
+	svc.Route("Index").Get(`/{id:\d\{1,3\}}`).Request(&indexRequest{}).Response(&indexResponse{})
+
+	test := &testServer{}
+	svr, _ := NewServer(svc, test)
+
+	rb := bytes.NewBuffer([]byte(`{"ID": 10}`))
+	r, _ := http.NewRequest("GET", "/123456", rb)
+	w := httptest.NewRecorder()
+	svr.ServeHTTP(w, r)
+	assert.False(t, test.called)
+
+	rb = bytes.NewBuffer([]byte(`{"ID": 10}`))
+	r, _ = http.NewRequest("GET", "/123", rb)
+	w = httptest.NewRecorder()
+	svr.ServeHTTP(w, r)
+	assert.True(t, test.called)
+	assert.Equal(t, Params{"id": "123"}, test.params)
+}
+
 type testChunkedServer struct {
 	id int
 }

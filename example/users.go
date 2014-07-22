@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -29,10 +28,11 @@ func (u *UserService) CreateUser(user *User) (interface{}, error) {
 	return nil, rapid.Status(403)
 }
 
-func (u *UserService) GetUser() (*User, error) {
+func (u *UserService) GetUser(params rapid.Params) (*User, error) {
 	return nil, rapid.Status(403)
 }
 
+// Changes streams a sequence of integers to the client.
 func (u *UserService) Changes() (chan int, chan error) {
 	dc := make(chan int)
 	ec := make(chan error)
@@ -41,7 +41,7 @@ func (u *UserService) Changes() (chan int, chan error) {
 			dc <- i
 			time.Sleep(time.Millisecond * 500)
 		}
-		ec <- errors.New("BAD")
+		close(dc)
 	}()
 	return dc, ec
 }

@@ -27,6 +27,7 @@ func (s *Service) Route(name string) *Route {
 
 type Route struct {
 	Name              string
+	Description       string
 	Path              string
 	HTTPMethod        string
 	StreamingResponse bool
@@ -68,6 +69,11 @@ func (r *Route) Delete(path string) *Route {
 
 func (r *Route) Options(path string) *Route {
 	return r.Method("OPTIONS", path)
+}
+
+func (r *Route) Describe(text string) *Route {
+	r.Description = text
+	return r
 }
 
 func (r *Route) Request(req interface{}) *Route {

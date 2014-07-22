@@ -36,23 +36,28 @@ func (u *UserService) ListUsers() ([]*User, error) {
   return users, nil
 }
 
-func (u *UserService) CreateUser(user *User) (interface{}, error) {
-  return nil, rapid.Status(403)
+func (u *UserService) CreateUser(user *User) error {
+  return rapid.ErrorForStatus(403)
 }
 
-func (u *UserService) GetUser() (*User, error) {
-  return nil, rapid.Status(403)
+func (u *UserService) GetUser(params rapid.Params) (*User, error) {
+  return nil, rapid.ErrorForStatus(403)
 }
 
-func (u *UserService) Changes() (chan int, chan error) {
+// Changes streams a sequence of integers to the client.
+func (u *UserService) Changes(closeNotifier rapid.CloseNotifierChannel) (chan int, chan error) {
   dc := make(chan int)
   ec := make(chan error)
   go func() {
     for i := 0; i < 10; i++ {
-      dc <- i
-      time.Sleep(time.Millisecond * 500)
+      select {
+      case dc <- i:
+        time.Sleep(time.Millisecond * 500)
+      case <-closeNotifier:
+        return
+      }
     }
-    ec <- errors.New("BAD")
+    close(dc)
   }()
   return dc, ec
 }

@@ -11,17 +11,33 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/alecthomas/rapid/protocol"
-
 	"github.com/codegangsta/inject"
 )
 
 var (
-	pathTransform = regexp.MustCompile(`{((\w+)(\.\.\.)?)}`)
+	pathTransform = regexp.MustCompile(`{((\w+)(?::((?:\\.|[^}])+))?)}`)
 )
+
+type Logger interface {
+	Debug(fmt string, args ...interface{})
+	Info(fmt string, args ...interface{})
+	Warning(fmt string, args ...interface{})
+	Error(fmt string, args ...interface{})
+}
+
+type loggerSink struct{}
+
+func (l *loggerSink) Debug(fmt string, args ...interface{})   {}
+func (l *loggerSink) Info(fmt string, args ...interface{})    {}
+func (l *loggerSink) Warning(fmt string, args ...interface{}) {}
+func (l *loggerSink) Error(fmt string, args ...interface{})   {}
+
+type CloseNotifierChannel chan bool
 
 // Protocol defining how responses and errors are encoded.
 type Protocol interface {
+	// TranslateError translates errors into
+	TranslateError(in error) (status int, out error)
 	WriteHeader(w http.ResponseWriter, r *http.Request, status int)
 	EncodeResponse(w http.ResponseWriter, r *http.Request, status int, err error, data interface{})
 	NotFound(w http.ResponseWriter, r *http.Request)
@@ -59,11 +75,11 @@ type HTTPStatus struct {
 	Message string
 }
 
-func Status(status int) error {
+func ErrorForStatus(status int) error {
 	return &HTTPStatus{status, http.StatusText(status)}
 }
 
-func StatusMessage(status int, message string) error {
+func Error(status int, message string) error {
 	return &HTTPStatus{status, message}
 }
 
@@ -84,6 +100,7 @@ type Server struct {
 	service  *Service
 	matches  []*routeMatch
 	protocol Protocol
+	log      Logger
 }
 
 func NewServer(service *Service, handler interface{}) (*Server, error) {
@@ -105,19 +122,27 @@ func NewServer(service *Service, handler interface{}) (*Server, error) {
 	s := &Server{
 		service:  service,
 		matches:  matches,
-		protocol: &protocol.DefaultProtocol{},
+		protocol: &DefaultProtocol{},
+		log:      &loggerSink{},
 	}
 	return s, nil
 }
 
-func (s *Server) Protocol(protocol Protocol) *Server {
+func (s *Server) SetProtocol(protocol Protocol) *Server {
 	s.protocol = protocol
 	return s
 }
 
+func (s *Server) SetLogger(log Logger) *Server {
+	s.log = log
+	return s
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.log.Debug("%s %s", r.Method, r.URL)
 	i := inject.New()
 	i.MapTo(w, (*http.ResponseWriter)(nil))
+	i.MapTo(s.protocol, (*Protocol)(nil))
 	i.Map(r)
 	match, parts := s.match(r)
 	if match == nil {
@@ -129,20 +154,41 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req = reflect.New(match.route.RequestType.Elem()).Interface()
 		err := json.NewDecoder(r.Body).Decode(req)
 		if err != nil {
-			panic(err.Error())
+			s.protocol.WriteHeader(w, r, http.StatusInternalServerError)
+			s.protocol.EncodeResponse(w, r, http.StatusInternalServerError, err, nil)
+			return
 		}
 		i.Map(req)
 	}
 	i.Map(parts)
+	var closeNotifier CloseNotifierChannel
+	if match.route.StreamingResponse {
+		closeNotifier = make(CloseNotifierChannel)
+		i.Map(closeNotifier)
+	}
 	result, err := i.Invoke(match.method.Interface())
 	if err != nil {
 		panic(err.Error())
 	}
-	if len(result) != 2 {
+	switch len(result) {
+	case 0: // Zero return values, we assume the handler has processed the request itself.
+		return
+
+	case 1: // Single value is always an error, so we just synthesize (nil, error).
+		if match.route.StreamingResponse {
+			panic("streaming responses must return (chan <type>, chan error)")
+		}
+		result = []reflect.Value{reflect.ValueOf((*struct{})(nil)), result[0]}
+
+	case 2: // (response, error)
+		// TODO: More checks for stuff.
+
+	default:
 		panic(fmt.Errorf("handler method %s.%s should return (<response>, <error>)", match.method.Type(), match.route.Name))
 	}
+	s.log.Debug("%s %s -> %v", r.Method, r.URL, result[1].Interface())
 	if match.route.StreamingResponse {
-		s.handleStream(w, r, result[0], result[1])
+		s.handleStream(closeNotifier, w, r, result[0], result[1])
 	} else {
 		s.handleScalar(w, r, result[0], result[1])
 	}
@@ -152,14 +198,30 @@ func (s *Server) handleScalar(w http.ResponseWriter, r *http.Request, rdata refl
 	status := http.StatusOK
 	var data interface{}
 	var err error
-	if !rdata.IsNil() {
-		data = rdata.Interface()
+	switch rdata.Kind() {
+	case reflect.String:
+		data = rdata.String()
+
+	case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64:
+		data = rdata.Int()
+
+	case reflect.Uint, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		data = rdata.Uint()
+
+	case reflect.Float32, reflect.Float64:
+		data = rdata.Float()
+
+	default:
+		if !rdata.IsNil() {
+			data = rdata.Interface()
+		}
+
 	}
 
 	// If we have an error...
 	if !rerr.IsNil() {
 		err = rerr.Interface().(error)
-		status, err = decodeError(err)
+		status, err = s.protocol.TranslateError(err)
 		if err != nil {
 			data = nil
 		}
@@ -174,7 +236,7 @@ func (s *Server) writeResponse(w http.ResponseWriter, r *http.Request, status in
 	s.protocol.EncodeResponse(w, r, status, err, data)
 }
 
-func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
+func (s *Server) handleStream(closeNotifier chan bool, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
 	fw, ok := w.(http.Flusher)
 	if !ok {
 		s.writeResponse(w, r, http.StatusInternalServerError, errors.New("HTTP writer does not support flushing"), nil)
@@ -209,34 +271,18 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request, rdata refl
 				fw.Flush()
 
 			case 1: // error
-				status, err := decodeError(recv.Interface().(error))
+				status, err := s.protocol.TranslateError(recv.Interface().(error))
 				s.protocol.EncodeResponse(cw, r, status, err, nil)
 				return
 
 			case 2: // CloseNotifier
+				closeNotifier <- true
 				return
 			}
 		} else {
 			return
 		}
 	}
-}
-
-func decodeError(err error) (int, error) {
-	status := http.StatusOK
-	// Check if it's a HTTPStatus error, in which case check the status code.
-	if st, ok := err.(*HTTPStatus); ok {
-		status = st.Status
-		// If it's not an error, clear the error value so we don't return an error value.
-		if st.Status >= 200 && st.Status <= 299 {
-			err = nil
-		}
-	} else {
-		// If it's any other error type, set 500 and continue.
-		status = http.StatusInternalServerError
-		err = errors.New("internal server error")
-	}
-	return status, err
 }
 
 func (s *Server) match(r *http.Request) (*routeMatch, Params) {
@@ -246,6 +292,7 @@ func (s *Server) match(r *http.Request) (*routeMatch, Params) {
 			if matches != nil {
 				params := Params{}
 				for i, k := range match.params {
+					// fmt.Printf("%s = %s (%d)\n", k, matches[i+1], i+1)
 					params[k] = matches[i+1]
 				}
 				return match, params
@@ -257,17 +304,17 @@ func (s *Server) match(r *http.Request) (*routeMatch, Params) {
 
 func compilePath(path string) (*regexp.Regexp, []string) {
 	routePattern := "^" + path + "$"
-	for _, match := range pathTransform.FindAllStringSubmatch(routePattern, 16) {
+	params := []string{}
+	for _, match := range pathTransform.FindAllStringSubmatch(routePattern, -1) {
 		pattern := `([^/]+)`
-		if match[3] == "..." {
-			pattern = `(.+)`
+		if match[3] != "" {
+			pattern = "(" + match[3] + ")"
+			pattern = strings.Replace(pattern, `\{`, "{", -1)
+			pattern = strings.Replace(pattern, `\}`, "}", -1)
 		}
 		routePattern = strings.Replace(routePattern, match[0], pattern, 1)
+		params = append(params, match[2])
 	}
 	pattern := regexp.MustCompile(routePattern)
-	params := []string{}
-	for _, arg := range pathTransform.FindAllString(path, 16) {
-		params = append(params, arg[1:len(arg)-1])
-	}
 	return pattern, params
 }
