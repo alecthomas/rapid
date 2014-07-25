@@ -164,6 +164,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	i.SetParent(s.Injector)
 	i.MapTo(w, (*http.ResponseWriter)(nil))
 	i.Map(r)
+
 	match, parts := s.match(r)
 	if match == nil {
 		s.protocol.NotFound(w, r)
@@ -174,8 +175,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req = reflect.New(match.route.requestType.Elem()).Interface()
 		err := json.NewDecoder(r.Body).Decode(req)
 		if err != nil {
-			s.protocol.WriteHeader(w, r, http.StatusInternalServerError)
-			s.protocol.EncodeResponse(w, r, http.StatusInternalServerError, err, nil)
+			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
+			s.protocol.EncodeResponse(w, r, http.StatusBadRequest, err, nil)
 			return
 		}
 		i.Map(req)
