@@ -46,7 +46,7 @@ func SchemaFrom(title string, prototype interface{}) *Schema {
 	return s
 }
 
-func SchemaFromService(service *Service) *Schema {
+func SchemaFromService(service *Definition) *Schema {
 	s := &Schema{
 		Title: service.name,
 	}

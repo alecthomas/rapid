@@ -87,12 +87,12 @@ func (c *{{$.Service.Name}}Client) {{.Name}}(req {{.RequestType}}) ({{.ResponseT
 `
 )
 
-func GenerateClient(pkg, imp string, service *Service, w io.Writer) error {
+func GenerateClient(pkg, imp string, service *Definition, w io.Writer) error {
 	t := template.Must(template.New(service.name).Funcs(funcMap).Parse(clientTemplate))
 	return t.Execute(w, struct {
-		Package string
-		Import  string
-		Service *Service
+		Package    string
+		Import     string
+		Definition *Definition
 	}{
 		pkg,
 		imp,

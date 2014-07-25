@@ -114,16 +114,17 @@ type routeMatch struct {
 }
 
 type Server struct {
-	service  *Service
-	matches  []*routeMatch
-	protocol Protocol
-	log      Logger
+	definition *Definition
+	matches    []*routeMatch
+	protocol   Protocol
+	log        Logger
+	Injector   inject.Injector
 }
 
-func NewServer(service *Service, handler interface{}) (*Server, error) {
-	matches := make([]*routeMatch, 0, len(service.routes))
+func NewServer(definition *Definition, handler interface{}) (*Server, error) {
+	matches := make([]*routeMatch, 0, len(definition.routes))
 	hr := reflect.ValueOf(handler)
-	for _, route := range service.routes {
+	for _, route := range definition.routes {
 		pattern, params := compilePath(route.path)
 		method := hr.MethodByName(route.name)
 		if !method.IsValid() {
@@ -137,11 +138,13 @@ func NewServer(service *Service, handler interface{}) (*Server, error) {
 		})
 	}
 	s := &Server{
-		service:  service,
-		matches:  matches,
-		protocol: &DefaultProtocol{},
-		log:      &loggerSink{},
+		definition: definition,
+		matches:    matches,
+		protocol:   &DefaultProtocol{},
+		log:        &loggerSink{},
+		Injector:   inject.New(),
 	}
+	s.Injector.MapTo(s.protocol, (*Protocol)(nil))
 	return s, nil
 }
 
@@ -158,8 +161,8 @@ func (s *Server) SetLogger(log Logger) *Server {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.log.Debug("%s %s", r.Method, r.URL)
 	i := inject.New()
+	i.SetParent(s.Injector)
 	i.MapTo(w, (*http.ResponseWriter)(nil))
-	i.MapTo(s.protocol, (*Protocol)(nil))
 	i.Map(r)
 	match, parts := s.match(r)
 	if match == nil {

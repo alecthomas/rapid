@@ -10,16 +10,17 @@ type Converter interface {
 	Convert(value string, injector *inject.Injector)
 }
 
-type Service struct {
+type Definition struct {
 	name   string
 	routes []*Route
 }
 
-func NewService(name string) *Service {
-	return &Service{name: name}
+// Define a new service.
+func Define(name string) *Definition {
+	return &Definition{name: name}
 }
 
-func (s *Service) Route(name string) *Route {
+func (s *Definition) Route(name string) *Route {
 	route := newRoute(name)
 	s.routes = append(s.routes, route)
 	return route
