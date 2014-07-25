@@ -11,39 +11,39 @@ type Converter interface {
 }
 
 type Service struct {
-	Name   string
-	Routes []*Route
+	name   string
+	routes []*Route
 }
 
 func NewService(name string) *Service {
-	return &Service{Name: name}
+	return &Service{name: name}
 }
 
 func (s *Service) Route(name string) *Route {
 	route := newRoute(name)
-	s.Routes = append(s.Routes, route)
+	s.routes = append(s.routes, route)
 	return route
 }
 
 type Route struct {
-	Name              string
-	Description       string
-	Path              string
-	HTTPMethod        string
-	StreamingResponse bool
-	RequestType       reflect.Type
-	ResponseType      reflect.Type
+	name              string
+	description       string
+	path              string
+	httpMethod        string
+	streamingResponse bool
+	requestType       reflect.Type
+	responseType      reflect.Type
 }
 
 func newRoute(name string) *Route {
 	return &Route{
-		Name: name,
+		name: name,
 	}
 }
 
 func (r *Route) Method(method, path string) *Route {
-	r.HTTPMethod = method
-	r.Path = path
+	r.httpMethod = method
+	r.path = path
 	return r
 }
 
@@ -72,21 +72,21 @@ func (r *Route) Options(path string) *Route {
 }
 
 func (r *Route) Describe(text string) *Route {
-	r.Description = text
+	r.description = text
 	return r
 }
 
 func (r *Route) Request(req interface{}) *Route {
-	r.RequestType = reflect.TypeOf(req)
+	r.requestType = reflect.TypeOf(req)
 	return r
 }
 
 func (r *Route) Response(resp interface{}) *Route {
-	r.ResponseType = reflect.TypeOf(resp)
+	r.responseType = reflect.TypeOf(resp)
 	return r
 }
 
 func (r *Route) Streaming() *Route {
-	r.StreamingResponse = true
+	r.streamingResponse = true
 	return r
 }

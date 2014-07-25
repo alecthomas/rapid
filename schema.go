@@ -48,19 +48,19 @@ func SchemaFrom(title string, prototype interface{}) *Schema {
 
 func SchemaFromService(service *Service) *Schema {
 	s := &Schema{
-		Title: service.Name,
+		Title: service.name,
 	}
-	for _, route := range service.Routes {
+	for _, route := range service.routes {
 		transferEncoding := ""
-		if route.StreamingResponse {
+		if route.streamingResponse {
 			transferEncoding = "chunked"
 		}
 		l := &SchemaLink{
-			Rel:              route.Name,
-			Href:             route.Path,
-			Method:           route.HTTPMethod,
-			Schema:           schemaFromReflectedType("", route.RequestType),
-			TargetSchema:     schemaFromReflectedType("", route.ResponseType),
+			Rel:              route.name,
+			Href:             route.path,
+			Method:           route.httpMethod,
+			Schema:           schemaFromReflectedType("", route.requestType),
+			TargetSchema:     schemaFromReflectedType("", route.responseType),
 			TransferEncoding: transferEncoding,
 		}
 		if l.Schema != nil && l.EncType != "" {

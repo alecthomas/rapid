@@ -9,6 +9,7 @@ import (
 	"net/http/httputil"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/codegangsta/inject"
@@ -89,6 +90,22 @@ func (h *HTTPStatus) Error() string {
 
 type Params map[string]string
 
+func (p Params) Int(key string) (int64, error) {
+	v, ok := p[key]
+	if !ok {
+		return 0, fmt.Errorf("no such query parameter %s", key)
+	}
+	return strconv.ParseInt(v, 10, 64)
+}
+
+func (p Params) Float(key string) (float64, error) {
+	v, ok := p[key]
+	if !ok {
+		return 0, fmt.Errorf("no such query parameter %s", key)
+	}
+	return strconv.ParseFloat(v, 64)
+}
+
 type routeMatch struct {
 	route   *Route
 	pattern *regexp.Regexp
@@ -104,13 +121,13 @@ type Server struct {
 }
 
 func NewServer(service *Service, handler interface{}) (*Server, error) {
-	matches := make([]*routeMatch, 0, len(service.Routes))
+	matches := make([]*routeMatch, 0, len(service.routes))
 	hr := reflect.ValueOf(handler)
-	for _, route := range service.Routes {
-		pattern, params := compilePath(route.Path)
-		method := hr.MethodByName(route.Name)
+	for _, route := range service.routes {
+		pattern, params := compilePath(route.path)
+		method := hr.MethodByName(route.name)
 		if !method.IsValid() {
-			return nil, fmt.Errorf("no such method %s.%s", hr.Type(), route.Name)
+			return nil, fmt.Errorf("no such method %s.%s", hr.Type(), route.name)
 		}
 		matches = append(matches, &routeMatch{
 			route:   route,
@@ -150,8 +167,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req interface{}
-	if match.route.RequestType != nil {
-		req = reflect.New(match.route.RequestType.Elem()).Interface()
+	if match.route.requestType != nil {
+		req = reflect.New(match.route.requestType.Elem()).Interface()
 		err := json.NewDecoder(r.Body).Decode(req)
 		if err != nil {
 			s.protocol.WriteHeader(w, r, http.StatusInternalServerError)
@@ -162,7 +179,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	i.Map(parts)
 	var closeNotifier CloseNotifierChannel
-	if match.route.StreamingResponse {
+	if match.route.streamingResponse {
 		closeNotifier = make(CloseNotifierChannel)
 		i.Map(closeNotifier)
 	}
@@ -175,7 +192,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case 1: // Single value is always an error, so we just synthesize (nil, error).
-		if match.route.StreamingResponse {
+		if match.route.streamingResponse {
 			panic("streaming responses must return (chan <type>, chan error)")
 		}
 		result = []reflect.Value{reflect.ValueOf((*struct{})(nil)), result[0]}
@@ -184,12 +201,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// TODO: More checks for stuff.
 
 	default:
-		panic(fmt.Errorf("handler method %s.%s should return (<response>, <error>)", match.method.Type(), match.route.Name))
+		panic(fmt.Errorf("handler method %s.%s should return (<response>, <error>)", match.method.Type(), match.route.name))
 	}
-	s.log.Debug("%s %s -> %v", r.Method, r.URL, result[1].Interface())
-	if match.route.StreamingResponse {
+	if match.route.streamingResponse {
+		s.log.Debug("%s %s -> streaming response", r.Method, r.URL)
 		s.handleStream(closeNotifier, w, r, result[0], result[1])
 	} else {
+		s.log.Debug("%s %s -> %v", r.Method, r.URL, result[1].Interface())
 		s.handleScalar(w, r, result[0], result[1])
 	}
 }
@@ -297,7 +315,7 @@ func (s *Server) handleStream(closeNotifier chan bool, w http.ResponseWriter, r 
 
 func (s *Server) match(r *http.Request) (*routeMatch, Params) {
 	for _, match := range s.matches {
-		if r.Method == match.route.HTTPMethod {
+		if r.Method == match.route.httpMethod {
 			matches := match.pattern.FindStringSubmatch(r.URL.Path)
 			if matches != nil {
 				params := Params{}
