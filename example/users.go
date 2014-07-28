@@ -25,11 +25,11 @@ func (u *UserService) ListUsers() ([]*User, error) {
 }
 
 func (u *UserService) CreateUser(user *User) (interface{}, error) {
-	return nil, rapid.Status(403)
+	return nil, rapid.ErrorForStatus(403)
 }
 
 func (u *UserService) GetUser(params rapid.Params) (*User, error) {
-	return nil, rapid.Status(403)
+	return nil, rapid.ErrorForStatus(403)
 }
 
 // Changes streams a sequence of integers to the client.
@@ -47,7 +47,7 @@ func (u *UserService) Changes() (chan int, chan error) {
 }
 
 func main() {
-	users := rapid.NewService("Users")
+	users := rapid.Define("Users")
 	users.Route("ListUsers").Get("/users").Response([]*User{})
 	users.Route("GetUser").Get("/users/{id}").Response(&User{})
 	users.Route("CreateUser").Post("/users").Request(&User{})

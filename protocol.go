@@ -43,7 +43,7 @@ func (d *DefaultProtocol) EncodeResponse(w http.ResponseWriter, r *http.Request,
 	if err != nil {
 		errString = err.Error()
 	}
-	json.NewEncoder(w).Encode(&ProtocolReponse{S: status, E: errString, D: data})
+	_ = json.NewEncoder(w).Encode(&ProtocolReponse{S: status, E: errString, D: data})
 }
 
 func (d *DefaultProtocol) NotFound(w http.ResponseWriter, r *http.Request) {

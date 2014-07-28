@@ -15,7 +15,7 @@ type User struct {
   Name string
 }
 
-users := rapid.NewService("Users")
+users := rapid.Define("Users")
 users.Route("ListUsers").Get("/users").Response([]*User{})
 users.Route("GetUser").Get("/users/{id}").Response(&User{})
 users.Route("CreateUser").Post("/users").Request(&User{})

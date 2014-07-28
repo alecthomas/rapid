@@ -7,10 +7,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/gorilla/schema"
 
 	"github.com/codegangsta/inject"
 )
@@ -160,16 +163,48 @@ func (s *Server) SetLogger(log Logger) *Server {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.log.Debug("%s %s", r.Method, r.URL)
-	i := inject.New()
-	i.SetParent(s.Injector)
-	i.MapTo(w, (*http.ResponseWriter)(nil))
-	i.Map(r)
 
+	// Match URL and method.
 	match, parts := s.match(r)
 	if match == nil {
 		s.protocol.NotFound(w, r)
 		return
 	}
+
+	i := inject.New()
+	i.SetParent(s.Injector)
+
+	// Decode path parameters, if any.
+	var path interface{}
+	if match.route.pathType != nil {
+		path = reflect.New(match.route.pathType.Elem()).Interface()
+		values := url.Values{}
+		for key, value := range parts {
+			values.Add(key, value)
+		}
+		err := schema.NewDecoder().Decode(path, values)
+		if err != nil {
+			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
+			s.protocol.EncodeResponse(w, r, http.StatusBadRequest, err, nil)
+			return
+		}
+		i.Map(path)
+	}
+
+	// Decode query parameters, if any.
+	var query interface{}
+	if match.route.queryType != nil {
+		query = reflect.New(match.route.queryType.Elem()).Interface()
+		err := schema.NewDecoder().Decode(query, r.URL.Query())
+		if err != nil {
+			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
+			s.protocol.EncodeResponse(w, r, http.StatusBadRequest, err, nil)
+			return
+		}
+		i.Map(query)
+	}
+
+	// Decode rqeuest body, if any.
 	var req interface{}
 	if match.route.requestType != nil {
 		req = reflect.New(match.route.requestType.Elem()).Interface()
@@ -181,7 +216,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		i.Map(req)
 	}
+
+	i.MapTo(w, (*http.ResponseWriter)(nil))
+	i.Map(r)
 	i.Map(parts)
+
 	var closeNotifier CloseNotifierChannel
 	if match.route.streamingResponse {
 		closeNotifier = make(CloseNotifierChannel)

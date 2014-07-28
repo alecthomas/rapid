@@ -34,6 +34,8 @@ type Route struct {
 	streamingResponse bool
 	requestType       reflect.Type
 	responseType      reflect.Type
+	queryType         reflect.Type
+	pathType          reflect.Type
 }
 
 func newRoute(name string) *Route {
@@ -42,12 +44,14 @@ func newRoute(name string) *Route {
 	}
 }
 
+// Method explicitly sets the HTTP method for a route.
 func (r *Route) Method(method, path string) *Route {
 	r.httpMethod = method
 	r.path = path
 	return r
 }
 
+// Any matches any HTTP method.
 func (r *Route) Any(path string) *Route {
 	return r.Method("", path)
 }
@@ -72,8 +76,25 @@ func (r *Route) Options(path string) *Route {
 	return r.Method("OPTIONS", path)
 }
 
-func (r *Route) Describe(text string) *Route {
+// Description of the route.
+func (r *Route) Description(text string) *Route {
 	r.description = text
+	return r
+}
+
+// Query sets the type used to decode a request's query parameters. Each
+// parameter is deserialized into the corresponding parameter using
+// gorilla/schema.
+func (r *Route) Query(query interface{}) *Route {
+	r.queryType = reflect.TypeOf(query)
+	return r
+}
+
+// Path sets the type used to decode a request's path parameters. Each
+// parameter is deserialized into the corresponding parameter using
+// gorilla/schema.
+func (r *Route) Path(params interface{}) *Route {
+	r.pathType = reflect.TypeOf(params)
 	return r
 }
 

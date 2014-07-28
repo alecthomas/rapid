@@ -128,7 +128,7 @@ func TestSchemaFromArray(t *testing.T) {
 }
 
 func TestSchemaFromService(t *testing.T) {
-	svc := NewService("Test")
+	svc := Define("Test")
 	svc.Route("Index").Get("/{id}").Response(&indexResponse{}).Streaming()
 	svc.Route("Create").Post("/").Request(&indexRequest{})
 	s := SchemaFromService(svc)
