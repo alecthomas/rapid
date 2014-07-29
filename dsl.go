@@ -1,14 +1,6 @@
 package rapid
 
-import (
-	"reflect"
-
-	"github.com/codegangsta/inject"
-)
-
-type Converter interface {
-	Convert(value string, injector *inject.Injector)
-}
+import "reflect"
 
 type Definition struct {
 	name   string
@@ -36,12 +28,11 @@ type Route struct {
 	responseType      reflect.Type
 	queryType         reflect.Type
 	pathType          reflect.Type
+	successStatus     int
 }
 
 func newRoute(name string) *Route {
-	return &Route{
-		name: name,
-	}
+	return &Route{name: name}
 }
 
 // Method explicitly sets the HTTP method for a route.
@@ -108,7 +99,15 @@ func (r *Route) Response(resp interface{}) *Route {
 	return r
 }
 
+// Streaming specifies that an endpoint returns a chunked streaming response
+// (chan <type>, chan error).
 func (r *Route) Streaming() *Route {
 	r.streamingResponse = true
+	return r
+}
+
+// Success overrides the status code to return for a successful (no error) response.
+func (r *Route) SuccessStatus(status int) *Route {
+	r.successStatus = status
 	return r
 }

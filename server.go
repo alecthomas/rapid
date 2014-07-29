@@ -38,15 +38,6 @@ func (l *loggerSink) Error(fmt string, args ...interface{})   {}
 
 type CloseNotifierChannel chan bool
 
-// Protocol defining how responses and errors are encoded.
-type Protocol interface {
-	// TranslateError translates errors into
-	TranslateError(in error) (status int, out error)
-	WriteHeader(w http.ResponseWriter, r *http.Request, status int)
-	EncodeResponse(w http.ResponseWriter, r *http.Request, status int, err error, data interface{})
-	NotFound(w http.ResponseWriter, r *http.Request)
-}
-
 type ChunkedResponseWriter struct {
 	w  http.ResponseWriter
 	cw io.WriteCloser
@@ -248,15 +239,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if match.route.streamingResponse {
 		s.log.Debug("%s %s -> streaming response", r.Method, r.URL)
-		s.handleStream(closeNotifier, w, r, result[0], result[1])
+		s.handleStream(match.route, closeNotifier, w, r, result[0], result[1])
 	} else {
 		s.log.Debug("%s %s -> %v", r.Method, r.URL, result[1].Interface())
-		s.handleScalar(w, r, result[0], result[1])
+		s.handleScalar(match.route, w, r, result[0], result[1])
 	}
 }
 
-func (s *Server) handleScalar(w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerr reflect.Value) {
-	status := http.StatusOK
+func (s *Server) handleScalar(route *Route, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerr reflect.Value) {
 	var data interface{}
 	var err error
 	switch rdata.Kind() {
@@ -282,10 +272,10 @@ func (s *Server) handleScalar(w http.ResponseWriter, r *http.Request, rdata refl
 	// If we have an error...
 	if !rerr.IsNil() {
 		err = rerr.Interface().(error)
-		status, err = s.protocol.TranslateError(err)
-		if err != nil {
-			data = nil
-		}
+	}
+	status, err := s.protocol.TranslateError(r, route.successStatus, err)
+	if err != nil {
+		data = nil
 	}
 	s.protocol.WriteHeader(w, r, status)
 	s.protocol.EncodeResponse(w, r, status, err, data)
@@ -297,7 +287,7 @@ func (s *Server) writeResponse(w http.ResponseWriter, r *http.Request, status in
 	s.protocol.EncodeResponse(w, r, status, err, data)
 }
 
-func (s *Server) handleStream(closeNotifier chan bool, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
+func (s *Server) handleStream(route *Route, closeNotifier chan bool, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
 	fw, ok := w.(http.Flusher)
 	if !ok {
 		s.writeResponse(w, r, http.StatusInternalServerError, errors.New("HTTP writer does not support flushing"), nil)
@@ -318,13 +308,14 @@ func (s *Server) handleStream(closeNotifier chan bool, w http.ResponseWriter, r 
 	dc := reflect.SelectCase{Dir: reflect.SelectDefault}
 	cases := []reflect.SelectCase{dc, ec}
 	if _, recv, ok := reflect.Select(cases); ok {
-		status, err := s.protocol.TranslateError(recv.Interface().(error))
+		status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
 		s.writeResponse(w, r, status, err, nil)
 		return
 	}
 
+	status, _ := s.protocol.TranslateError(r, route.successStatus, nil)
 	// No error? Flush the 200 and star the main select loop.
-	s.protocol.WriteHeader(w, r, http.StatusOK)
+	s.protocol.WriteHeader(w, r, status)
 	fw.Flush()
 	defer cw.Close()
 
@@ -343,7 +334,7 @@ func (s *Server) handleStream(closeNotifier chan bool, w http.ResponseWriter, r 
 				fw.Flush()
 
 			case 1: // error
-				status, err := s.protocol.TranslateError(recv.Interface().(error))
+				status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
 				s.protocol.EncodeResponse(cw, r, status, err, nil)
 				return
 
