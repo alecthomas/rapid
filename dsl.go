@@ -1,44 +1,46 @@
 package rapid
 
-import "reflect"
+import (
+	"github.com/alecthomas/rapid/schema"
+
+	"reflect"
+)
 
 type Definition struct {
 	name   string
-	routes []*Route
+	Schema *schema.Schema
 }
 
 // Define a new service.
 func Define(name string) *Definition {
-	return &Definition{name: name}
+	return &Definition{
+		Schema: &schema.Schema{
+			Name: name,
+		},
+	}
 }
 
 func (s *Definition) Route(name string) *Route {
 	route := newRoute(name)
-	s.routes = append(s.routes, route)
+	s.Schema.Routes = append(s.Schema.Routes, route.model)
 	return route
 }
 
 type Route struct {
-	name              string
-	description       string
-	path              string
-	httpMethod        string
-	streamingResponse bool
-	requestType       reflect.Type
-	responseType      reflect.Type
-	queryType         reflect.Type
-	pathType          reflect.Type
-	successStatus     int
+	model *schema.Route
 }
 
 func newRoute(name string) *Route {
-	return &Route{name: name}
+	return &Route{
+		model: &schema.Route{
+			Name: name,
+		}}
 }
 
 // Method explicitly sets the HTTP method for a route.
 func (r *Route) Method(method, path string) *Route {
-	r.httpMethod = method
-	r.path = path
+	r.model.HTTPMethod = method
+	r.model.Path = path
 	return r
 }
 
@@ -69,7 +71,7 @@ func (r *Route) Options(path string) *Route {
 
 // Description of the route.
 func (r *Route) Description(text string) *Route {
-	r.description = text
+	r.model.Description = text
 	return r
 }
 
@@ -77,7 +79,7 @@ func (r *Route) Description(text string) *Route {
 // parameter is deserialized into the corresponding parameter using
 // gorilla/schema.
 func (r *Route) Query(query interface{}) *Route {
-	r.queryType = reflect.TypeOf(query)
+	r.model.QueryType = reflect.TypeOf(query)
 	return r
 }
 
@@ -85,29 +87,29 @@ func (r *Route) Query(query interface{}) *Route {
 // parameter is deserialized into the corresponding parameter using
 // gorilla/schema.
 func (r *Route) Path(params interface{}) *Route {
-	r.pathType = reflect.TypeOf(params)
+	r.model.PathType = reflect.TypeOf(params)
 	return r
 }
 
 func (r *Route) Request(req interface{}) *Route {
-	r.requestType = reflect.TypeOf(req)
+	r.model.RequestType = reflect.TypeOf(req)
 	return r
 }
 
 func (r *Route) Response(resp interface{}) *Route {
-	r.responseType = reflect.TypeOf(resp)
+	r.model.ResponseType = reflect.TypeOf(resp)
 	return r
 }
 
 // Streaming specifies that an endpoint returns a chunked streaming response
 // (chan <type>, chan error).
 func (r *Route) Streaming() *Route {
-	r.streamingResponse = true
+	r.model.StreamingResponse = true
 	return r
 }
 
-// Success overrides the status code to return for a successful (no error) response.
+// SuccessStatus overrides the status code to return for a successful (no error) response.
 func (r *Route) SuccessStatus(status int) *Route {
-	r.successStatus = status
+	r.model.SuccessStatus = status
 	return r
 }

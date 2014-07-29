@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gorilla/schema"
-
+	"github.com/alecthomas/rapid/schema"
 	"github.com/codegangsta/inject"
+	structschema "github.com/gorilla/schema"
 )
 
 var (
@@ -101,7 +101,7 @@ func (p Params) Float(key string) (float64, error) {
 }
 
 type routeMatch struct {
-	route   *Route
+	route   *schema.Route
 	pattern *regexp.Regexp
 	params  []string
 	method  reflect.Value
@@ -116,13 +116,13 @@ type Server struct {
 }
 
 func NewServer(definition *Definition, handler interface{}) (*Server, error) {
-	matches := make([]*routeMatch, 0, len(definition.routes))
+	matches := make([]*routeMatch, 0, len(definition.Schema.Routes))
 	hr := reflect.ValueOf(handler)
-	for _, route := range definition.routes {
-		pattern, params := compilePath(route.path)
-		method := hr.MethodByName(route.name)
+	for _, route := range definition.Schema.Routes {
+		pattern, params := compilePath(route.Path)
+		method := hr.MethodByName(route.Name)
 		if !method.IsValid() {
-			return nil, fmt.Errorf("no such method %s.%s", hr.Type(), route.name)
+			return nil, fmt.Errorf("no such method %s.%s", hr.Type(), route.Name)
 		}
 		matches = append(matches, &routeMatch{
 			route:   route,
@@ -167,13 +167,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Decode path parameters, if any.
 	var path interface{}
-	if match.route.pathType != nil {
-		path = reflect.New(match.route.pathType.Elem()).Interface()
+	if match.route.PathType != nil {
+		path = reflect.New(match.route.PathType.Elem()).Interface()
 		values := url.Values{}
 		for key, value := range parts {
 			values.Add(key, value)
 		}
-		err := schema.NewDecoder().Decode(path, values)
+		err := structschema.NewDecoder().Decode(path, values)
 		if err != nil {
 			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
 			s.protocol.EncodeResponse(w, r, http.StatusBadRequest, err, nil)
@@ -184,9 +184,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Decode query parameters, if any.
 	var query interface{}
-	if match.route.queryType != nil {
-		query = reflect.New(match.route.queryType.Elem()).Interface()
-		err := schema.NewDecoder().Decode(query, r.URL.Query())
+	if match.route.QueryType != nil {
+		query = reflect.New(match.route.QueryType.Elem()).Interface()
+		err := structschema.NewDecoder().Decode(query, r.URL.Query())
 		if err != nil {
 			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
 			s.protocol.EncodeResponse(w, r, http.StatusBadRequest, err, nil)
@@ -197,8 +197,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Decode rqeuest body, if any.
 	var req interface{}
-	if match.route.requestType != nil {
-		req = reflect.New(match.route.requestType.Elem()).Interface()
+	if match.route.RequestType != nil {
+		req = reflect.New(match.route.RequestType.Elem()).Interface()
 		err := json.NewDecoder(r.Body).Decode(req)
 		if err != nil {
 			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
@@ -213,7 +213,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	i.Map(parts)
 
 	var closeNotifier CloseNotifierChannel
-	if match.route.streamingResponse {
+	if match.route.StreamingResponse {
 		closeNotifier = make(CloseNotifierChannel)
 		i.Map(closeNotifier)
 	}
@@ -226,7 +226,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case 1: // Single value is always an error, so we just synthesize (nil, error).
-		if match.route.streamingResponse {
+		if match.route.StreamingResponse {
 			panic("streaming responses must return (chan <type>, chan error)")
 		}
 		result = []reflect.Value{reflect.ValueOf((*struct{})(nil)), result[0]}
@@ -235,9 +235,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// TODO: More checks for stuff.
 
 	default:
-		panic(fmt.Errorf("handler method %s.%s should return (<response>, <error>)", match.method.Type(), match.route.name))
+		panic(fmt.Errorf("handler method %s.%s should return (<response>, <error>)", match.method.Type(), match.route.Name))
 	}
-	if match.route.streamingResponse {
+	if match.route.StreamingResponse {
 		s.log.Debug("%s %s -> streaming response", r.Method, r.URL)
 		s.handleStream(match.route, closeNotifier, w, r, result[0], result[1])
 	} else {
@@ -246,7 +246,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleScalar(route *Route, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerr reflect.Value) {
+func (s *Server) handleScalar(route *schema.Route, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerr reflect.Value) {
 	var data interface{}
 	var err error
 	switch rdata.Kind() {
@@ -273,7 +273,7 @@ func (s *Server) handleScalar(route *Route, w http.ResponseWriter, r *http.Reque
 	if !rerr.IsNil() {
 		err = rerr.Interface().(error)
 	}
-	status, err := s.protocol.TranslateError(r, route.successStatus, err)
+	status, err := s.protocol.TranslateError(r, route.SuccessStatus, err)
 	if err != nil {
 		data = nil
 	}
@@ -287,7 +287,7 @@ func (s *Server) writeResponse(w http.ResponseWriter, r *http.Request, status in
 	s.protocol.EncodeResponse(w, r, status, err, data)
 }
 
-func (s *Server) handleStream(route *Route, closeNotifier chan bool, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
+func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
 	fw, ok := w.(http.Flusher)
 	if !ok {
 		s.writeResponse(w, r, http.StatusInternalServerError, errors.New("HTTP writer does not support flushing"), nil)
@@ -313,7 +313,7 @@ func (s *Server) handleStream(route *Route, closeNotifier chan bool, w http.Resp
 		return
 	}
 
-	status, _ := s.protocol.TranslateError(r, route.successStatus, nil)
+	status, _ := s.protocol.TranslateError(r, route.SuccessStatus, nil)
 	// No error? Flush the 200 and star the main select loop.
 	s.protocol.WriteHeader(w, r, status)
 	fw.Flush()
@@ -349,7 +349,7 @@ func (s *Server) handleStream(route *Route, closeNotifier chan bool, w http.Resp
 
 func (s *Server) match(r *http.Request) (*routeMatch, Params) {
 	for _, match := range s.matches {
-		if r.Method == match.route.httpMethod {
+		if r.Method == match.route.HTTPMethod {
 			matches := match.pattern.FindStringSubmatch(r.URL.Path)
 			if matches != nil {
 				params := Params{}

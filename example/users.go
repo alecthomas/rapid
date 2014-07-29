@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -52,9 +50,6 @@ func main() {
 	users.Route("GetUser").Get("/users/{id}").Response(&User{})
 	users.Route("CreateUser").Post("/users").Request(&User{})
 	users.Route("Changes").Get("/changes").Streaming().Response(0)
-
-	b, _ := json.Marshal(rapid.SchemaFromService(users))
-	fmt.Printf("%s\n", b)
 
 	service := &UserService{}
 	server, err := rapid.NewServer(users, service)
