@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/alecthomas/kingpin"
+
+	"github.com/alecthomas/rapid/example"
 )
 
 var (
@@ -25,13 +27,13 @@ func main() {
 
 	switch command {
 	case "create":
-		err := c.CreateUser(&User{
+		err := c.CreateUser(&example.User{
 			Name: *createUser,
 		})
 		kingpin.FatalIfError(err, "failed to create user")
 
 	case "list":
-		users, err := c.ListUsers(&UsersQuery{Name: *listFilter})
+		users, err := c.ListUsers(&example.UsersQuery{Name: *listFilter})
 		kingpin.FatalIfError(err, "failed to retrieve users")
 		for _, user := range users {
 			fmt.Printf("%s (%d)\n", user.Name, user.ID)

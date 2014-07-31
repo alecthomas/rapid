@@ -5,19 +5,26 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"text/template"
 )
 
-func goTypeReference(t reflect.Type) string {
+func goTypeReference(pkg string, t reflect.Type) string {
 	switch t.Kind() {
 	case reflect.Struct:
-		return t.Name()
+		if t.PkgPath() == pkg {
+			return t.Name()
+		}
+		return fmt.Sprintf("%s", t)
 
 	case reflect.Ptr:
-		return "*" + goTypeReference(t.Elem())
+		return "*" + goTypeReference(pkg, t.Elem())
+
+	case reflect.Interface:
+		return "interface{}"
 
 	case reflect.String:
 		return "string"
@@ -59,19 +66,22 @@ func goTypeReference(t reflect.Type) string {
 		return "float64"
 
 	case reflect.Slice:
-		return "[]" + goTypeReference(t.Elem())
+		return "[]" + goTypeReference(pkg, t.Elem())
+
+	case reflect.Map:
+		return fmt.Sprintf("map[%s]%s", goTypeReference(pkg, t.Key()), goTypeReference(pkg, t.Elem()))
 	}
 	panic(fmt.Sprintf("unsupported type %s", t))
 }
 
-func goTypeDefinition(t reflect.Type) (name string, definition string) {
+func goTypeDefinition(pkg string, t reflect.Type) (name string, definition string) {
 	switch t.Kind() {
 	case reflect.Struct:
 		out := &bytes.Buffer{}
 		out.WriteString("struct {\n")
 		for i := 0; i < t.NumField(); i++ {
 			f := t.Field(i)
-			fmt.Fprintf(out, "\t%s %s", f.Name, goTypeReference(f.Type))
+			fmt.Fprintf(out, "\t%s %s", f.Name, goTypeReference(pkg, f.Type))
 			if f.Tag != "" {
 				fmt.Fprintf(out, "\t`%s`", f.Tag)
 			}
@@ -86,14 +96,14 @@ func goTypeDefinition(t reflect.Type) (name string, definition string) {
 		return "", ""
 
 	case reflect.Ptr:
-		return goTypeDefinition(t.Elem())
+		return goTypeDefinition(pkg, t.Elem())
 
 	default:
-		return "", goTypeReference(t)
+		return "", goTypeReference(pkg, t)
 	}
 }
 
-func goPathTypeToParams(t reflect.Type) string {
+func goPathTypeToParams(pkg string, t reflect.Type) string {
 	switch t.Kind() {
 	case reflect.Struct:
 		out := []string{}
@@ -103,12 +113,12 @@ func goPathTypeToParams(t reflect.Type) string {
 			if name == "" {
 				name = f.Name
 			}
-			out = append(out, fmt.Sprintf("%s %s", name, goTypeReference(f.Type)))
+			out = append(out, fmt.Sprintf("%s %s", name, goTypeReference(pkg, f.Type)))
 		}
 		return strings.Join(out, ", ")
 
 	case reflect.Ptr:
-		return goPathTypeToParams(t.Elem())
+		return goPathTypeToParams(pkg, t.Elem())
 	}
 	panic("invalid path type")
 }
@@ -137,19 +147,23 @@ func goPathNames(t reflect.Type) []string {
 
 }
 
-func goTypeDecl(name string, t reflect.Type) string {
+func goTypeDecl(pkg string, name string, t reflect.Type) string {
 	switch t.Kind() {
 	case reflect.Slice:
-		return fmt.Sprintf("%s := []%s{}", name, goTypeReference(t.Elem()))
+		return fmt.Sprintf("%s := []%s{}", name, goTypeReference(pkg, t.Elem()))
 
 	case reflect.Struct:
-		return fmt.Sprintf("%s := &%s{}", name, t.Name())
+		typ := fmt.Sprintf("%s", t)
+		if pkg == t.PkgPath() {
+			typ = t.Name()
+		}
+		return fmt.Sprintf("%s := &%s{}", name, typ)
 
 	case reflect.Ptr:
-		return goTypeDecl(name, t.Elem())
+		return goTypeDecl(pkg, name, t.Elem())
 
 	default:
-		return fmt.Sprintf("var %s %s", name, goTypeReference(t))
+		return fmt.Sprintf("var %s %s", name, goTypeReference(pkg, t))
 	}
 }
 
@@ -170,16 +184,13 @@ var (
 	goTemplate = `package {{.Package}}
 
 import (
-	"github.com/alecthomas/rapid"
+{{range $key, $value := .Imports}}
+	"{{$key}}"{{end}}
 )
-
-{{range $name, $definition := .Definitions}}
-type {{$name}} {{$definition}}
-{{end}}
 
 {{if .Schema.Description}}// {{.Schema.Name}}Client - {{.Schema.Description}}{{end}}
 type {{.Schema.Name}}Client struct {
-	c *rapid.Client
+	c rapid.ClientInterface
 }
 
 {{if .Schema.Description}}// Dial{{.Schema.Name}} creates a new client for the {{.Schema.Name}} API.{{end}}
@@ -194,10 +205,14 @@ func Dial{{.Schema.Name}}(url string, protocol rapid.Protocol) (*{{.Schema.Name}
 	return &{{.Schema.Name}}Client{c}, nil
 }
 
+func New{{.Schema.Name}}(client rapid.ClientInterface) *{{.Schema.Name}}Client {
+	return &{{.Schema.Name}}Client{client}
+}
+
 {{range .Schema.Routes}}
 {{if .StreamingResponse}}
 type {{.Name}}Stream struct {
-	stream *rapid.ClientStream
+	stream rapid.ClientStreamInterface
 }
 
 func (s *{{.Name}}Stream) Next() ({{.ResponseType|type}}, error) {
@@ -243,32 +258,33 @@ func (a *{{$.Schema.Name}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}
 )
 
 type goClientContext struct {
-	Package     string
-	Definitions map[string]string
-	Schema      *Schema
+	Imports map[string]struct{}
+	Package string
+	Schema  *Schema
 }
 
 func SchemaToGoClient(schema *Schema, pkg string, w io.Writer) error {
 	sort.Sort(schema.Routes)
-	// First, build map of type name to type definition
-	definitions := map[string]string{}
-	for _, t := range schema.Models() {
-		name, definition := goTypeDefinition(t)
-		if name != "" {
-			definitions[name] = definition
+	imports := map[string]struct{}{
+		"github.com/alecthomas/rapid": struct{}{},
+	}
+	for _, t := range schema.Types() {
+		if t.PkgPath() == "" || t.PkgPath() == pkg {
+			continue
 		}
+		imports[t.PkgPath()] = struct{}{}
 	}
 	ctx := &goClientContext{
-		Definitions: definitions,
-		Package:     pkg,
-		Schema:      schema,
+		Imports: imports,
+		Package: filepath.Base(pkg),
+		Schema:  schema,
 	}
 	goFuncs := template.FuncMap{
-		"type":       goTypeReference,
+		"type":       func(t reflect.Type) string { return goTypeReference(pkg, t) },
 		"title":      strings.Title,
-		"params":     goPathTypeToParams,
+		"params":     func(t reflect.Type) string { return goPathTypeToParams(pkg, t) },
 		"names":      goPathNames,
-		"var":        goTypeDecl,
+		"var":        func(name string, t reflect.Type) string { return goTypeDecl(pkg, name, t) },
 		"ref":        goTypeRef,
 		"needsalloc": func(t reflect.Type) bool { return t != nil && (t.Kind() == reflect.Ptr) },
 		"isslice":    func(t reflect.Type) bool { return t != nil && t.Kind() == reflect.Slice },

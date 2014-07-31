@@ -32,26 +32,33 @@ type Route struct {
 	SuccessStatus     int
 }
 
+func collectStructTypes(types map[reflect.Type]struct{}, t reflect.Type) {
+	if t == nil {
+		return
+	}
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() == reflect.Struct {
+		types[t] = struct{}{}
+		for i := 0; i < t.NumField(); i++ {
+			collectStructTypes(types, t.Field(i).Type)
+		}
+	}
+}
+
 // Models returns a set of all references types used in the schema.
-func (s *Schema) Models() []reflect.Type {
-	models := map[reflect.Type]struct{}{}
+func (s *Schema) Types() []reflect.Type {
+	types := map[reflect.Type]struct{}{}
 	for _, route := range s.Routes {
-		if route.RequestType != nil {
-			models[route.RequestType] = struct{}{}
-		}
-		if route.ResponseType != nil {
-			models[route.ResponseType] = struct{}{}
-		}
-		if route.QueryType != nil {
-			models[route.QueryType] = struct{}{}
-		}
-		// if route.PathType != nil {
-		// 	models[route.PathType] = struct{}{}
-		// }
+		collectStructTypes(types, route.RequestType)
+		collectStructTypes(types, route.ResponseType)
+		collectStructTypes(types, route.QueryType)
+		collectStructTypes(types, route.PathType)
 	}
 
 	out := []reflect.Type{}
-	for model := range models {
+	for model := range types {
 		out = append(out, model)
 	}
 	return out

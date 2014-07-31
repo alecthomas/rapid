@@ -2,20 +2,12 @@ package main
 
 import (
 	"github.com/alecthomas/rapid"
+	"github.com/alecthomas/rapid/example"
 )
-
-type User struct {
-	ID   int
-	Name string
-}
-
-type UsersQuery struct {
-	Name string `schema:"name"`
-}
 
 // UsersClient - An API for managing users.
 type UsersClient struct {
-	c *rapid.Client
+	c rapid.ClientInterface
 }
 
 // DialUsers creates a new client for the Users API.
@@ -30,8 +22,12 @@ func DialUsers(url string, protocol rapid.Protocol) (*UsersClient, error) {
 	return &UsersClient{c}, nil
 }
 
+func NewUsers(client rapid.ClientInterface) *UsersClient {
+	return &UsersClient{client}
+}
+
 // CreateUser - Create a new user.
-func (a *UsersClient) CreateUser(req *User) error {
+func (a *UsersClient) CreateUser(req *example.User) error {
 
 	err := a.c.DoBasic(
 		"POST",
@@ -46,9 +42,9 @@ func (a *UsersClient) CreateUser(req *User) error {
 }
 
 // ListUsers - Retrieve a list of known users.
-func (a *UsersClient) ListUsers(query *UsersQuery) ([]*User, error) {
+func (a *UsersClient) ListUsers(query *example.UsersQuery) ([]*example.User, error) {
 
-	resp := []*User{}
+	resp := []*example.User{}
 
 	err := a.c.DoBasic(
 		"GET",
@@ -63,9 +59,9 @@ func (a *UsersClient) ListUsers(query *UsersQuery) ([]*User, error) {
 }
 
 // GetUser - Retrieve a single user by username.
-func (a *UsersClient) GetUser(username string) (*User, error) {
+func (a *UsersClient) GetUser(username string) (*example.User, error) {
 
-	resp := &User{}
+	resp := &example.User{}
 
 	err := a.c.DoBasic(
 		"GET",
@@ -82,7 +78,7 @@ func (a *UsersClient) GetUser(username string) (*User, error) {
 }
 
 type ChangesStream struct {
-	stream *rapid.ClientStream
+	stream rapid.ClientStreamInterface
 }
 
 func (s *ChangesStream) Next() (int, error) {

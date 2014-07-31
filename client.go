@@ -10,6 +10,16 @@ import (
 	"github.com/alecthomas/rapid/schema"
 )
 
+type ClientInterface interface {
+	DoBasic(method string, req, resp, query interface{}, path string, params ...interface{}) error
+	DoStreaming(method string, req, query interface{}, path string, params ...interface{}) (ClientStreamInterface, error)
+}
+
+type ClientStreamInterface interface {
+	Next(v interface{}) error
+	Close() error
+}
+
 type Client struct {
 	url        string
 	protocol   Protocol
@@ -17,6 +27,9 @@ type Client struct {
 }
 
 func Dial(url string, protocol Protocol) (*Client, error) {
+	if protocol == nil {
+		protocol = &DefaultProtocol{}
+	}
 	return &Client{
 		url:        url,
 		protocol:   protocol,
@@ -64,7 +77,7 @@ func (c *Client) DoBasic(method string, req, resp, query interface{}, path strin
 	return err
 }
 
-func (c *Client) DoStreaming(method string, req, query interface{}, path string, params ...interface{}) (*ClientStream, error) {
+func (c *Client) DoStreaming(method string, req, query interface{}, path string, params ...interface{}) (ClientStreamInterface, error) {
 	hr, err := c.Do(method, req, query, path, params...)
 	if err != nil {
 		return nil, err
