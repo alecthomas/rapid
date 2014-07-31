@@ -3,24 +3,35 @@ package rapid
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 )
 
 // Protocol defining how responses and errors are encoded.
 type Protocol interface {
 	// TranslateError can be used to translate errors into rapid.HTTPStatus values.
-	// in may be nil. status may be 0.
+	// in may be nil. status may be 0, in which case a status is inferred.
 	TranslateError(r *http.Request, inStatus int, inError error) (status int, out error)
 	WriteHeader(w http.ResponseWriter, r *http.Request, status int)
 	EncodeResponse(w http.ResponseWriter, r *http.Request, status int, err error, data interface{})
 	NotFound(w http.ResponseWriter, r *http.Request)
+
+	// Decode is used by protocol clients to decode responses.
+	// err may be a HTTPStatus
+	Decode(r io.Reader, v interface{}) (status int, err error)
 }
 
-// ProtocolReponse is the default protocol response encoding structure.
-type ProtocolReponse struct {
+// ProtocolResponse is the default protocol response encoding structure.
+type ProtocolResponse struct {
 	S int         `json:"S"`
 	E string      `json:"E,omitempty"`
 	D interface{} `json:"D,omitempty"`
+}
+
+type receivedProtocolResponse struct {
+	S int             `json:"S"`
+	E string          `json:"E,omitempty"`
+	D json.RawMessage `json:"D,omitempty"`
 }
 
 // DefaultProtocol implements a useful default API protocol.
@@ -64,9 +75,20 @@ func (d *DefaultProtocol) EncodeResponse(w http.ResponseWriter, r *http.Request,
 	if err != nil {
 		errString = err.Error()
 	}
-	_ = json.NewEncoder(w).Encode(&ProtocolReponse{S: status, E: errString, D: data})
+	_ = json.NewEncoder(w).Encode(&ProtocolResponse{S: status, E: errString, D: data})
 }
 
 func (d *DefaultProtocol) NotFound(w http.ResponseWriter, r *http.Request) {
 	d.EncodeResponse(w, r, http.StatusNotFound, errors.New("not found"), nil)
+}
+
+func (d *DefaultProtocol) Decode(r io.Reader, v interface{}) (status int, err error) {
+	out := &receivedProtocolResponse{}
+	if err = json.NewDecoder(r).Decode(out); err != nil {
+		return 0, err
+	}
+	if out.E != "" {
+		return out.S, Error(out.S, out.E)
+	}
+	return out.S, json.Unmarshal(out.D, v)
 }

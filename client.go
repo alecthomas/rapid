@@ -3,127 +3,92 @@ package rapid
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
-	"strings"
-	"text/template"
-
 	"io"
+	"net/http"
+	"net/http/httputil"
+
+	"github.com/alecthomas/rapid/schema"
 )
-
-var (
-	funcMap = template.FuncMap{
-		"fixpointer": func(v string) string { return strings.TrimLeft(v, "*") },
-	}
-
-	clientTemplate = `package {{.Package}}
-
-import (
-  "encoding/json"
-
-  "github.com/alecthomas/rapid"
-
-  "{{.Import}}"
-)
-{{with .Service}}
-type {{.Name}}Client struct {
-  *rapid.Client
-}
-
-func Dial{{.Name}}(url string) (*{{.Name}}Client, error) {
-  c, err := rapid.Dial(url)
-  if err != nil {
-    return nil, err
-  }
-  return &{{.Name}}Client{c}, nil
-}
-
-func (c *{{$.Service.Name}}Client) scalar(method, path string, req interface{}, rep interface{}) (int, error) {
-  hrep, err := c.Client.Do(method, path, req, rep)
-  err = json.NewDecoder(hrep.Body).Decode(rep)
-  if err != nil {
-    return -1, err
-  }
-  return hrep.StatusCode, err
-}
-
-{{range .Routes}}
-{{if .StreamingResponse}}
-func (c *{{$.Service.Name}}Client) {{.Name}}(req {{.RequestType}}) (chan {{.ResponseType}}, chan error) {
-  ec := make(chan error, 1)
-  rc := make(chan {{.ResponseType}})
-
-  go func() {
-    defer func() {
-      close(ec)
-      close(rc)
-    }()
-
-    hrep, err := c.Client.Do(method, path, req, rep)
-    if err != nil {
-      ec <- err
-      return
-    }
-    r := http.NewChunkedReader(hrep.Body)
-    dec := json.NewDecoder(r)
-
-    for {
-      p := &{{.ResponseType | fixpointer}}{}
-      if err := dec.Decode(p); err != nil {
-        ec <- err
-        return
-      }
-    }
-  }()
-
-  return rc, ec
-}
-{{else}}
-func (c *{{$.Service.Name}}Client) {{.Name}}(req {{.RequestType}}) ({{.ResponseType}}, error) {
-  rep := &{{.ResponseType.String | fixpointer}}{}
-  _, err := c.Client.Do("{{.HTTPMethod}}", "{{.Path}}", req, rep)
-  return rep, err
-}
-{{end}}{{end}}{{end}}
-`
-)
-
-func GenerateClient(pkg, imp string, service *Definition, w io.Writer) error {
-	t := template.Must(template.New(service.name).Funcs(funcMap).Parse(clientTemplate))
-	return t.Execute(w, struct {
-		Package    string
-		Import     string
-		Definition *Definition
-	}{
-		pkg,
-		imp,
-		service,
-	})
-}
 
 type Client struct {
 	url        string
+	protocol   Protocol
 	HTTPClient *http.Client
 }
 
-func (c *Client) Do(method, path string, req interface{}, rep interface{}) (*http.Response, error) {
-	var reqb []byte
-	var err error
+func Dial(url string, protocol Protocol) (*Client, error) {
+	return &Client{
+		url:        url,
+		protocol:   protocol,
+		HTTPClient: &http.Client{},
+	}, nil
+}
+
+// Do issues a HTTP request to a rapid server.
+// params are interpolated into path.
+// query can be either nil, url.Values or a struct conforming to the
+// gorilla/schema tag protocol.
+func (c *Client) Do(method string, req, query interface{}, path string, params ...interface{}) (*http.Response, error) {
+	path = schema.InterpolatePath(path, params...)
+	var body io.Reader
 	if req != nil {
-		reqb, err = json.Marshal(req)
-		if err != nil {
+		b := &bytes.Buffer{}
+		if err := json.NewEncoder(b).Encode(req); err != nil {
 			return nil, err
 		}
+		body = b
 	}
-	hreq, err := http.NewRequest(method, c.url+path, bytes.NewBuffer(reqb))
+	// Build URL.
+	url := c.url + path
+	q := schema.EncodeStructToURLValues(query)
+	if len(q) > 0 {
+		url += "?" + q.Encode()
+	}
+	hreq, err := http.NewRequest(method, url, body)
 	if err != nil {
 		return nil, err
 	}
+	hreq.Header.Add("Accept", "application/json")
 	return c.HTTPClient.Do(hreq)
 }
 
-func Dial(url string) (*Client, error) {
-	return &Client{
-		url:        url,
-		HTTPClient: &http.Client{},
-	}, nil
+func (c *Client) DoBasic(method string, req, resp, query interface{}, path string, params ...interface{}) error {
+	hr, err := c.Do(method, req, query, path, params...)
+	if err != nil {
+		return err
+	}
+	defer hr.Body.Close()
+	if resp != nil {
+		_, err = c.protocol.Decode(hr.Body, resp)
+	}
+	return err
+}
+
+func (c *Client) DoStreaming(method string, req, query interface{}, path string, params ...interface{}) (*ClientStream, error) {
+	hr, err := c.Do(method, req, query, path, params...)
+	if err != nil {
+		return nil, err
+	}
+	return &ClientStream{hr: hr, r: httputil.NewChunkedReader(hr.Body), protocol: c.protocol}, nil
+}
+
+type Packet struct {
+	Error error
+	Data  []byte
+}
+
+type ClientStream struct {
+	hr       *http.Response
+	r        io.Reader
+	protocol Protocol
+}
+
+func (c *ClientStream) Next(v interface{}) error {
+	_, err := c.protocol.Decode(c.r, v)
+	return err
+}
+
+func (c *ClientStream) Close() error {
+	c.hr.Body.Close()
+	return nil
 }

@@ -20,6 +20,11 @@ func Define(name string) *Definition {
 	}
 }
 
+func (d *Definition) Description(description string) *Definition {
+	d.Schema.Description = description
+	return d
+}
+
 func (s *Definition) Route(name string) *Route {
 	route := newRoute(name)
 	s.Schema.Routes = append(s.Schema.Routes, route.model)
@@ -39,7 +44,7 @@ func newRoute(name string) *Route {
 
 // Method explicitly sets the HTTP method for a route.
 func (r *Route) Method(method, path string) *Route {
-	r.model.HTTPMethod = method
+	r.model.Method = method
 	r.model.Path = path
 	return r
 }

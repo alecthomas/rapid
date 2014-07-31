@@ -11,15 +11,10 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/alecthomas/rapid/schema"
 	"github.com/codegangsta/inject"
 	structschema "github.com/gorilla/schema"
-)
-
-var (
-	pathTransform = regexp.MustCompile(`{((\w+)(?::((?:\\.|[^}])+))?)}`)
 )
 
 type Logger interface {
@@ -119,7 +114,7 @@ func NewServer(definition *Definition, handler interface{}) (*Server, error) {
 	matches := make([]*routeMatch, 0, len(definition.Schema.Routes))
 	hr := reflect.ValueOf(handler)
 	for _, route := range definition.Schema.Routes {
-		pattern, params := compilePath(route.Path)
+		pattern, params := route.CompilePath()
 		method := hr.MethodByName(route.Name)
 		if !method.IsValid() {
 			return nil, fmt.Errorf("no such method %s.%s", hr.Type(), route.Name)
@@ -349,7 +344,7 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w ht
 
 func (s *Server) match(r *http.Request) (*routeMatch, Params) {
 	for _, match := range s.matches {
-		if r.Method == match.route.HTTPMethod {
+		if r.Method == match.route.Method {
 			matches := match.pattern.FindStringSubmatch(r.URL.Path)
 			if matches != nil {
 				params := Params{}
@@ -362,21 +357,4 @@ func (s *Server) match(r *http.Request) (*routeMatch, Params) {
 		}
 	}
 	return nil, nil
-}
-
-func compilePath(path string) (*regexp.Regexp, []string) {
-	routePattern := "^" + path + "$"
-	params := []string{}
-	for _, match := range pathTransform.FindAllStringSubmatch(routePattern, -1) {
-		pattern := `([^/]+)`
-		if match[3] != "" {
-			pattern = "(" + match[3] + ")"
-			pattern = strings.Replace(pattern, `\{`, "{", -1)
-			pattern = strings.Replace(pattern, `\}`, "}", -1)
-		}
-		routePattern = strings.Replace(routePattern, match[0], pattern, 1)
-		params = append(params, match[2])
-	}
-	pattern := regexp.MustCompile(routePattern)
-	return pattern, params
 }
