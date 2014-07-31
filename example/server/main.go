@@ -70,15 +70,23 @@ func (u *UserService) GetUser(path *UserPath) (*User, error) {
 }
 
 // Changes streams a sequence of integers to the client.
-func (u *UserService) Changes() (chan int, chan error) {
+func (u *UserService) Changes(cancel rapid.CloseNotifierChannel) (chan int, chan error) {
 	dc := make(chan int)
 	ec := make(chan error)
 	go func() {
+		defer close(dc)
 		for i := 0; i < 10; i++ {
-			dc <- i
-			time.Sleep(time.Millisecond * 500)
+			select {
+			case dc <- i:
+				time.Sleep(time.Millisecond * 500)
+				err := rapid.Error(http.StatusGatewayTimeout, "timed out retrieving changes")
+				log.Warning("Returning error %s", err)
+				ec <- err
+			case <-cancel:
+				log.Warning("Cancelled")
+				return
+			}
 		}
-		close(dc)
 	}()
 	return dc, ec
 }

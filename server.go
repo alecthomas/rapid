@@ -330,6 +330,7 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w ht
 
 			case 1: // error
 				status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
+				s.log.Debug("Closing HTTP connection, streaming handler returned error: %s", err)
 				s.protocol.EncodeResponse(cw, r, status, err, nil)
 				return
 

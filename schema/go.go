@@ -195,8 +195,23 @@ func Dial{{.Schema.Name}}(url string, protocol rapid.Protocol) (*{{.Schema.Name}
 }
 
 {{range .Schema.Routes}}
+{{if .StreamingResponse}}
+type {{.Name}}Stream struct {
+	stream *rapid.ClientStream
+}
+
+func (s *{{.Name}}Stream) Next() ({{.ResponseType|type}}, error) {
+	{{var "v" .ResponseType}}
+	err := s.stream.Next({{ref "v" .ResponseType}})
+	return v, err
+}
+
+func (s *{{.Name}}Stream) Close() error {
+	return s.stream.Close()
+}
+{{end}}
 {{if .Description}}// {{.Name}} - {{.Description}}{{end}}
-func (a *{{$.Schema.Name}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}{{end}}) ({{if .ResponseType}}{{if .StreamingResponse}}<-chan {{end}} {{.ResponseType|type}}, {{end}}{{if .StreamingResponse}}<-chan {{end}}error) {
+func (a *{{$.Schema.Name}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}{{end}}) ({{if .StreamingResponse}}*{{.Name}}Stream, {{else}}{{if .ResponseType}}{{.ResponseType|type}}, {{end}}{{end}}error) {
 {{if and (not .StreamingResponse) .ResponseType}}
 	{{var "resp" .ResponseType}}
 {{end}}
@@ -213,28 +228,7 @@ func (a *{{$.Schema.Name}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}
 	)
 
 {{if .StreamingResponse}}
-	if err != nil {
-		ec := make(chan error, 1)
-		ec <- err
-		return nil, ec
-	}
-	rc := make(chan {{.ResponseType|type}})
-	ec := make(chan error)
-	go func() (err error) {
-		for {
-			defer func() {
-				recover()
-				stream.Close()
-			}()
-			{{var "v" .ResponseType}}
-			if err = stream.Next({{ref "v" .ResponseType}}); err != nil {
-				ec <- err
-				return err
-			}
-			rc <- v
-		}
-	}()
-	return rc, ec
+	return &{{.Name}}Stream{stream}, err
 {{else}}
 	{{if .ResponseType}}
 	return resp, err

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/alecthomas/kingpin"
 )
@@ -12,6 +13,8 @@ var (
 
 	listCommand = kingpin.Command("list", "List users.")
 	listFilter  = listCommand.Arg("filter", "Glob-like filter matching usernames.").String()
+
+	changesCommand = kingpin.Command("changes", "Show changes as they occur.")
 )
 
 func main() {
@@ -32,6 +35,23 @@ func main() {
 		kingpin.FatalIfError(err, "failed to retrieve users")
 		for _, user := range users {
 			fmt.Printf("%s (%d)\n", user.Name, user.ID)
+		}
+
+	case "changes":
+		changes, err := c.Changes()
+		kingpin.FatalIfError(err, "failed to retrieve changes")
+		for {
+			n, err := changes.Next()
+			if err != nil {
+				kingpin.CommandLine.Errorf(os.Stderr, "%s", err)
+				changes.Close()
+				return
+			}
+			fmt.Printf("%d\n", n)
+			if n >= 5 {
+				changes.Close()
+				return
+			}
 		}
 	}
 }

@@ -81,8 +81,22 @@ func (a *UsersClient) GetUser(username string) (*User, error) {
 
 }
 
+type ChangesStream struct {
+	stream *rapid.ClientStream
+}
+
+func (s *ChangesStream) Next() (int, error) {
+	var v int
+	err := s.stream.Next(&v)
+	return v, err
+}
+
+func (s *ChangesStream) Close() error {
+	return s.stream.Close()
+}
+
 // Changes - A streaming response of change IDs.
-func (a *UsersClient) Changes() (<-chan int, <-chan error) {
+func (a *UsersClient) Changes() (*ChangesStream, error) {
 
 	stream, err := a.c.DoStreaming(
 		"GET",
@@ -92,27 +106,6 @@ func (a *UsersClient) Changes() (<-chan int, <-chan error) {
 		"/changes",
 	)
 
-	if err != nil {
-		ec := make(chan error, 1)
-		ec <- err
-		return nil, ec
-	}
-	rc := make(chan int)
-	ec := make(chan error)
-	go func() (err error) {
-		for {
-			defer func() {
-				recover()
-				stream.Close()
-			}()
-			var v int
-			if err = stream.Next(&v); err != nil {
-				ec <- err
-				return err
-			}
-			rc <- v
-		}
-	}()
-	return rc, ec
+	return &ChangesStream{stream}, err
 
 }
