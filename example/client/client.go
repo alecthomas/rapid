@@ -7,7 +7,7 @@ import (
 
 // UsersClient - An API for managing users.
 type UsersClient struct {
-	c rapid.ClientInterface
+	c rapid.Client
 }
 
 // DialUsers creates a new client for the Users API.
@@ -22,63 +22,36 @@ func DialUsers(url string, protocol rapid.Protocol) (*UsersClient, error) {
 	return &UsersClient{c}, nil
 }
 
-func NewUsers(client rapid.ClientInterface) *UsersClient {
+// NewUsers creates a new client for the Users API using an existing rapid.Client.
+func NewUsers(client rapid.Client) *UsersClient {
 	return &UsersClient{client}
 }
 
 // CreateUser - Create a new user.
 func (a *UsersClient) CreateUser(req *example.User) error {
-
-	err := a.c.DoBasic(
-		"POST",
-		req,
-		nil,
-		nil,
-		"/users",
-	)
-
+	r := rapid.Request("POST", "/users").Body(req).Build()
+	err := a.c.Do(r, nil)
 	return err
-
 }
 
 // ListUsers - Retrieve a list of known users.
 func (a *UsersClient) ListUsers(query *example.UsersQuery) ([]*example.User, error) {
-
 	resp := []*example.User{}
-
-	err := a.c.DoBasic(
-		"GET",
-		nil,
-		&resp,
-		query,
-		"/users",
-	)
-
+	r := rapid.Request("GET", "/users").Query(query).Build()
+	err := a.c.Do(r, &resp)
 	return resp, err
-
 }
 
 // GetUser - Retrieve a single user by username.
 func (a *UsersClient) GetUser(username string) (*example.User, error) {
-
 	resp := &example.User{}
-
-	err := a.c.DoBasic(
-		"GET",
-		nil,
-		resp,
-		nil,
-		"/users/{username}",
-
-		username,
-	)
-
+	r := rapid.Request("GET", "/users/{username}", username).Build()
+	err := a.c.Do(r, resp)
 	return resp, err
-
 }
 
 type ChangesStream struct {
-	stream rapid.ClientStreamInterface
+	stream rapid.ClientStream
 }
 
 func (s *ChangesStream) Next() (int, error) {
@@ -93,15 +66,7 @@ func (s *ChangesStream) Close() error {
 
 // Changes - A streaming response of change IDs.
 func (a *UsersClient) Changes() (*ChangesStream, error) {
-
-	stream, err := a.c.DoStreaming(
-		"GET",
-		nil,
-
-		nil,
-		"/changes",
-	)
-
+	r := rapid.Request("GET", "/changes").Build()
+	stream, err := a.c.DoStreaming(r)
 	return &ChangesStream{stream}, err
-
 }

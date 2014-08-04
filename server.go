@@ -161,9 +161,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	i.SetParent(s.Injector)
 
 	// Decode path parameters, if any.
-	var path interface{}
 	if match.route.PathType != nil {
-		path = reflect.New(match.route.PathType.Elem()).Interface()
+		path := reflect.New(match.route.PathType.Elem()).Interface()
 		values := url.Values{}
 		for key, value := range parts {
 			values.Add(key, value)
@@ -178,9 +177,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Decode query parameters, if any.
-	var query interface{}
 	if match.route.QueryType != nil {
-		query = reflect.New(match.route.QueryType.Elem()).Interface()
+		query := reflect.New(match.route.QueryType.Elem()).Interface()
 		err := structschema.NewDecoder().Decode(query, r.URL.Query())
 		if err != nil {
 			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
@@ -191,9 +189,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Decode rqeuest body, if any.
-	var req interface{}
 	if match.route.RequestType != nil {
-		req = reflect.New(match.route.RequestType.Elem()).Interface()
+		req := reflect.New(match.route.RequestType.Elem()).Interface()
 		err := json.NewDecoder(r.Body).Decode(req)
 		if err != nil {
 			s.protocol.WriteHeader(w, r, http.StatusBadRequest)

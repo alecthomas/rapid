@@ -190,7 +190,7 @@ import (
 
 {{if .Schema.Description}}// {{.Schema.Name}}Client - {{.Schema.Description}}{{end}}
 type {{.Schema.Name}}Client struct {
-	c rapid.ClientInterface
+	c rapid.Client
 }
 
 {{if .Schema.Description}}// Dial{{.Schema.Name}} creates a new client for the {{.Schema.Name}} API.{{end}}
@@ -205,14 +205,16 @@ func Dial{{.Schema.Name}}(url string, protocol rapid.Protocol) (*{{.Schema.Name}
 	return &{{.Schema.Name}}Client{c}, nil
 }
 
-func New{{.Schema.Name}}(client rapid.ClientInterface) *{{.Schema.Name}}Client {
+
+{{if .Schema.Description}}// New{{.Schema.Name}} creates a new client for the {{.Schema.Name}} API using an existing rapid.Client.{{end}}
+func New{{.Schema.Name}}(client rapid.Client) *{{.Schema.Name}}Client {
 	return &{{.Schema.Name}}Client{client}
 }
 
 {{range .Schema.Routes}}
 {{if .StreamingResponse}}
 type {{.Name}}Stream struct {
-	stream rapid.ClientStreamInterface
+	stream rapid.ClientStream
 }
 
 func (s *{{.Name}}Stream) Next() ({{.ResponseType|type}}, error) {
@@ -227,30 +229,10 @@ func (s *{{.Name}}Stream) Close() error {
 {{end}}
 {{if .Description}}// {{.Name}} - {{.Description}}{{end}}
 func (a *{{$.Schema.Name}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}{{end}}) ({{if .StreamingResponse}}*{{.Name}}Stream, {{else}}{{if .ResponseType}}{{.ResponseType|type}}, {{end}}{{end}}error) {
-{{if and (not .StreamingResponse) .ResponseType}}
-	{{var "resp" .ResponseType}}
-{{end}}
-
-	{{if .StreamingResponse}}stream, err := a.c.DoStreaming({{else}}err := a.c.DoBasic({{end}}
-		"{{.Method}}",
-		{{ref "req" .RequestType}},
-		{{if not .StreamingResponse}}{{ref "resp" .ResponseType}},{{end}}
-		{{ref "query" .QueryType}},
-		"{{.SimplifyPath}}",
-		{{range .PathType|names}}
-		{{.}},
-		{{end}}
-	)
-
-{{if .StreamingResponse}}
-	return &{{.Name}}Stream{stream}, err
-{{else}}
-	{{if .ResponseType}}
-	return resp, err
-	{{else}}
-	return err
-	{{end}}
-{{end}}
+	{{if and (not .StreamingResponse) .ResponseType}}{{var "resp" .ResponseType}}
+	{{end}}r := rapid.Request("{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}.Build()
+	{{if .StreamingResponse}}stream, err := a.c.DoStreaming({{else}}err := a.c.Do({{end}}r, {{if not .StreamingResponse}}{{ref "resp" .ResponseType}},{{end}})
+	{{if .StreamingResponse}}return &{{.Name}}Stream{stream}, err{{else}}{{if .ResponseType}}return resp, err{{else}}return err{{end}}{{end}}
 }
 {{end}}
 

@@ -5,11 +5,12 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/alecthomas/rapid/example"
+	"github.com/alecthomas/kingpin"
+	"github.com/op/go-logging"
 
 	"github.com/alecthomas/rapid"
+	"github.com/alecthomas/rapid/example"
 	"github.com/alecthomas/rapid/schema"
-	"github.com/op/go-logging"
 )
 
 var (
@@ -17,6 +18,8 @@ var (
 )
 
 func main() {
+	kingpin.Parse()
+
 	users := example.UserServiceDefinition()
 	// err := schema.SchemaToGoClient(users.Schema, "main", os.Stdout)
 	w, _ := os.Create("./example/client/client.go")
@@ -34,5 +37,5 @@ func main() {
 	}
 	server.SetLogger(log)
 	fmt.Println("Starting on http://0.0.0.0:8090")
-	http.ListenAndServe(":8090", server)
+	kingpin.FatalIfError(http.ListenAndServe(":8090", server), "failed to start server")
 }
