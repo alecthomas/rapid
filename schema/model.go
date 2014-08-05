@@ -14,22 +14,22 @@ var (
 type Routes []*Route
 
 type Schema struct {
-	Name        string
-	Description string
-	Routes      Routes
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Routes      Routes `json:"routes"`
 }
 
 type Route struct {
-	Name              string
-	Description       string
-	Path              string
-	Method            string
-	StreamingResponse bool
-	RequestType       reflect.Type
-	ResponseType      reflect.Type
-	QueryType         reflect.Type
-	PathType          reflect.Type
-	SuccessStatus     int
+	Name              string       `json:"name"`
+	Description       string       `json:"description"`
+	Path              string       `json:"path"`
+	Method            string       `json:"method"`
+	StreamingResponse bool         `json:"streaming_response"`
+	SuccessStatus     int          `json:"success_status"`
+	RequestType       reflect.Type `json:"request_type"`
+	ResponseType      reflect.Type `json:"response_type"`
+	QueryType         reflect.Type `json:"query_type"`
+	PathType          reflect.Type `json:"path_type"`
 }
 
 func collectStructTypes(types map[reflect.Type]struct{}, t reflect.Type) {

@@ -53,7 +53,7 @@ func (u *UsersQuery) Fix() {
 }
 
 func (u *UserService) ListUsers(query *UsersQuery) ([]*User, error) {
-	log.Info("ListUsers(%#v)", query)
+	log.Infof("ListUsers(%#v)", query)
 	users := make([]*User, 0, len(u.users))
 	query.Fix()
 
@@ -67,14 +67,14 @@ func (u *UserService) ListUsers(query *UsersQuery) ([]*User, error) {
 }
 
 func (u *UserService) CreateUser(user *User) error {
-	log.Info("CreateUser(%#v)", user)
+	log.Infof("CreateUser(%#v)", user)
 	user.ID = len(u.users) + 1
 	u.users[user.Name] = user
 	return rapid.ErrorForStatus(http.StatusCreated)
 }
 
 func (u *UserService) GetUser(path *UserPath) (*User, error) {
-	log.Info("GetUser(%s)", path.Name)
+	log.Infof("GetUser(%s)", path.Name)
 	user, ok := u.users[path.Name]
 	if !ok {
 		return nil, rapid.ErrorForStatus(http.StatusNotFound)
@@ -93,10 +93,10 @@ func (u *UserService) Changes(cancel rapid.CloseNotifierChannel) (chan int, chan
 			case dc <- i:
 				time.Sleep(time.Millisecond * 500)
 				err := rapid.Error(http.StatusGatewayTimeout, "timed out retrieving changes")
-				log.Warning("Returning error %s", err)
+				log.Warningf("Returning error %s", err)
 				ec <- err
 			case <-cancel:
-				log.Warning("Cancelled")
+				log.Warningf("Cancelled")
 				return
 			}
 		}

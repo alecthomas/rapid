@@ -18,18 +18,18 @@ import (
 )
 
 type Logger interface {
-	Debug(fmt string, args ...interface{})
-	Info(fmt string, args ...interface{})
-	Warning(fmt string, args ...interface{})
-	Error(fmt string, args ...interface{})
+	Debugf(fmt string, args ...interface{})
+	Infof(fmt string, args ...interface{})
+	Warningf(fmt string, args ...interface{})
+	Errorf(fmt string, args ...interface{})
 }
 
 type loggerSink struct{}
 
-func (l *loggerSink) Debug(fmt string, args ...interface{})   {}
-func (l *loggerSink) Info(fmt string, args ...interface{})    {}
-func (l *loggerSink) Warning(fmt string, args ...interface{}) {}
-func (l *loggerSink) Error(fmt string, args ...interface{})   {}
+func (l *loggerSink) Debugf(fmt string, args ...interface{})   {}
+func (l *loggerSink) Infof(fmt string, args ...interface{})    {}
+func (l *loggerSink) Warningf(fmt string, args ...interface{}) {}
+func (l *loggerSink) Errorf(fmt string, args ...interface{})   {}
 
 type CloseNotifierChannel chan bool
 
@@ -148,7 +148,7 @@ func (s *Server) SetLogger(log Logger) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.log.Debug("%s %s", r.Method, r.URL)
+	s.log.Debugf("%s %s", r.Method, r.URL)
 
 	// Match URL and method.
 	match, parts := s.match(r)
@@ -230,10 +230,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		panic(fmt.Errorf("handler method %s.%s should return (<response>, <error>)", match.method.Type(), match.route.Name))
 	}
 	if match.route.StreamingResponse {
-		s.log.Debug("%s %s -> streaming response", r.Method, r.URL)
+		s.log.Debugf("%s %s -> streaming response", r.Method, r.URL)
 		s.handleStream(match.route, closeNotifier, w, r, result[0], result[1])
 	} else {
-		s.log.Debug("%s %s -> %v", r.Method, r.URL, result[1].Interface())
+		s.log.Debugf("%s %s -> %v", r.Method, r.URL, result[1].Interface())
 		s.handleScalar(match.route, w, r, result[0], result[1])
 	}
 }
@@ -327,12 +327,12 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w ht
 
 			case 1: // error
 				status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
-				s.log.Debug("Closing HTTP connection, streaming handler returned error: %s", err)
+				s.log.Debugf("Closing HTTP connection, streaming handler returned error: %s", err)
 				s.protocol.EncodeResponse(cw, r, status, err, nil)
 				return
 
 			case 2: // CloseNotifier
-				s.log.Debug("HTTP connection closed")
+				s.log.Debugf("HTTP connection closed")
 				closeNotifier <- true
 				return
 			}

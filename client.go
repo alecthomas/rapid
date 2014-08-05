@@ -191,16 +191,16 @@ func NewRetryingClient(client Client, backoff backoff.BackOff, log Logger) (*Ret
 
 func (r *RetryingClient) Do(req *RequestTemplate, resp interface{}) error {
 	for {
-		r.log.Debug("Issing %s", req)
+		r.log.Debugf("Issing %s", req)
 		err := r.client.Do(req, resp)
 		if err == nil {
 			return nil
 		}
 
 		duration := r.backoff.NextBackOff()
-		r.log.Debug("Request %s failed (%s), delaying for %s", req, err, duration)
+		r.log.Debugf("Request %s failed (%s), delaying for %s", req, err, duration)
 		if duration == backoff.Stop {
-			r.log.Debug("Request %s exceeded retries, stopping", req)
+			r.log.Debugf("Request %s exceeded retries, stopping", req)
 			return err
 		}
 		time.Sleep(duration)
@@ -209,16 +209,16 @@ func (r *RetryingClient) Do(req *RequestTemplate, resp interface{}) error {
 
 func (r *RetryingClient) DoStreaming(req *RequestTemplate) (ClientStream, error) {
 	for {
-		r.log.Debug("Issing streaming request to %s", req)
+		r.log.Debugf("Issing streaming request to %s", req)
 		stream, err := r.client.DoStreaming(req)
 		if err == nil {
 			return &RetryingClientStream{r.backoff, stream}, nil
 		}
 
 		duration := r.backoff.NextBackOff()
-		r.log.Debug("Streaming request %s failed (%s), delaying for %s", req, err, duration)
+		r.log.Debugf("Streaming request %s failed (%s), delaying for %s", req, err, duration)
 		if duration == backoff.Stop {
-			r.log.Debug("Streaming request %s exceeded retries, stopping", req)
+			r.log.Debugf("Streaming request %s exceeded retries, stopping", req)
 			return nil, err
 		}
 		time.Sleep(duration)

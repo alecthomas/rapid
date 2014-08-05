@@ -25,9 +25,9 @@ func (d *Definition) Description(description string) *Definition {
 	return d
 }
 
-func (s *Definition) Route(name string) *Route {
+func (d *Definition) Route(name string) *Route {
 	route := newRoute(name)
-	s.Schema.Routes = append(s.Schema.Routes, route.model)
+	d.Schema.Routes = append(d.Schema.Routes, route.model)
 	return route
 }
 
