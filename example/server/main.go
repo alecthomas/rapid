@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/alecthomas/kingpin"
-	"github.com/op/go-logging"
+	"github.com/alecthomas/go-logging"
 
 	"github.com/alecthomas/rapid"
 	"github.com/alecthomas/rapid/example"

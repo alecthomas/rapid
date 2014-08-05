@@ -7,7 +7,7 @@ import (
 
 	"github.com/alecthomas/rapid"
 
-	"github.com/op/go-logging"
+	"github.com/alecthomas/go-logging"
 )
 
 var (
