@@ -20,5 +20,5 @@ func TestSchemaToJSON(t *testing.T) {
 	public := schema.SchemaToPublic(s.Schema)
 	b, _ := json.Marshal(public)
 	// fmt.Printf("%s\n", b)
-	assert.Equal(t, string(b), `{"routes":[{"request_type":null,"response_type":{"kind":"ref","name":"b378a6df6004998b7d4f828d1e601f6d4761dfff.TestSchemaToPublicRequestType"},"query_type":null,"path_type":null,"name":"Index","description":"","path":"/{id}","method":"GET","streaming_response":false,"success_status":0}],"name":"Test","description":"","Types":{"b378a6df6004998b7d4f828d1e601f6d4761dfff.TestSchemaToPublicRequestType":{"kind":"struct","name":"TestSchemaToPublicRequestType","fields":[{"kind":"map","name":"KV","key":{"kind":"string"},"value":{"kind":"string"},"annotation":"json:\"kv\""}]}}}`)
+	assert.Equal(t, string(b), `{"routes":[{"response_type":{"type":"TestSchemaToPublicRequestType"},"name":"Index","path":"/{id}","method":"GET"}],"name":"Test","Types":{"TestSchemaToPublicRequestType":{"type":"TestSchemaToPublicRequestType","fields":[{"type":"map","name":"kv","key":{"type":"string"},"value":{"type":"string"}}]}}}`)
 }

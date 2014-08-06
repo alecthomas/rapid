@@ -74,6 +74,7 @@ func (r *Route) Options(path string) *Route {
 	return r.Method("OPTIONS", path)
 }
 
+// Hidden hides a route from API dumps.
 func (r *Route) Hidden() *Route {
 	r.model.Hidden = true
 	return r

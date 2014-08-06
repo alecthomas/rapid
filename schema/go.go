@@ -212,6 +212,7 @@ func New{{.Schema.Name}}(client rapid.Client) *{{.Schema.Name}}Client {
 }
 
 {{range .Schema.Routes}}
+{{if not .Hidden}}
 {{if .StreamingResponse}}
 type {{.Name}}Stream struct {
 	stream rapid.ClientStream
@@ -234,6 +235,7 @@ func (a *{{$.Schema.Name}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}
 	{{if .StreamingResponse}}stream, err := a.c.DoStreaming({{else}}err := a.c.Do({{end}}r, {{if not .StreamingResponse}}{{ref "resp" .ResponseType}},{{end}})
 	{{if .StreamingResponse}}return &{{.Name}}Stream{stream}, err{{else}}{{if .ResponseType}}return resp, err{{else}}return err{{end}}{{end}}
 }
+{{end}}
 {{end}}
 
 `
