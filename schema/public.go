@@ -32,6 +32,31 @@ type PublicType struct {
 
 type schemaToPublicContext map[string]*PublicType
 
+// ShortestPrefix transforms package hashes to their shortest unique prefix.
+func (s schemaToPublicContext) ShortestPrefix() schemaToPublicContext {
+	out := schemaToPublicContext{}
+	prefix := 3
+	uniques := map[string]bool{}
+	for k := range s {
+		uniques[k[:40]] = true
+	}
+	for ; prefix < 40; prefix++ {
+		keys := map[string]int{}
+		for k := range s {
+			k = k[:prefix]
+			keys[k]++
+		}
+		if len(keys) == len(uniques) {
+			break
+		}
+	}
+
+	for k, v := range s {
+		out[k[:prefix]+k[40:]] = v
+	}
+	return out
+}
+
 // SchemaToPublic converts an internal Go Schema to a structure that is safe
 // for publication (as JSON, etc.).
 func SchemaToPublic(s *Schema) *PublicSchema {
@@ -42,7 +67,7 @@ func SchemaToPublic(s *Schema) *PublicSchema {
 	for _, route := range s.Routes {
 		schema.Routes = append(schema.Routes, routeToPublic(context, route))
 	}
-	schema.Types = context
+	schema.Types = context.ShortestPrefix()
 	return schema
 }
 
