@@ -14,7 +14,7 @@ import (
 type PublicSchema struct {
 	Routes []*PublicRoute `json:"routes"`
 	*Schema
-	Types map[string]*PublicType
+	Types map[string]*PublicType `json:"types"`
 }
 
 type PublicRoute struct {
