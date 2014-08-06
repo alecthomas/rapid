@@ -15,21 +15,23 @@ type Routes []*Route
 
 type Schema struct {
 	Name        string `json:"name"`
-	Description string `json:"description"`
+	Description string `json:"description,omitempty"`
 	Routes      Routes `json:"routes"`
 }
 
 type Route struct {
 	Name              string       `json:"name"`
-	Description       string       `json:"description"`
+	Description       string       `json:"description,omitempty"`
 	Path              string       `json:"path"`
 	Method            string       `json:"method"`
-	StreamingResponse bool         `json:"streaming_response"`
-	SuccessStatus     int          `json:"success_status"`
+	StreamingResponse bool         `json:"streaming_response,omitempty"`
 	RequestType       reflect.Type `json:"request_type"`
 	ResponseType      reflect.Type `json:"response_type"`
 	QueryType         reflect.Type `json:"query_type"`
 	PathType          reflect.Type `json:"path_type"`
+
+	SuccessStatus int  `json:"-"`
+	Hidden        bool `json:"-"`
 }
 
 func collectStructTypes(types map[reflect.Type]struct{}, t reflect.Type) {
@@ -47,7 +49,7 @@ func collectStructTypes(types map[reflect.Type]struct{}, t reflect.Type) {
 	}
 }
 
-// Models returns a set of all references types used in the schema.
+// Types returns a set of all references types used in the schema.
 func (s *Schema) Types() []reflect.Type {
 	types := map[reflect.Type]struct{}{}
 	for _, route := range s.Routes {

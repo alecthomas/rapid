@@ -74,6 +74,11 @@ func (r *Route) Options(path string) *Route {
 	return r.Method("OPTIONS", path)
 }
 
+func (r *Route) Hidden() *Route {
+	r.model.Hidden = true
+	return r
+}
+
 // Description of the route.
 func (r *Route) Description(text string) *Route {
 	r.model.Description = text
