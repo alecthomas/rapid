@@ -1,13 +1,16 @@
 package schema
 
 import (
+	"crypto/sha1"
 	"fmt"
+	"io"
 	"reflect"
 )
 
 type PublicSchema struct {
 	Routes []*PublicRoute `json:"routes"`
 	*Schema
+	Types map[string]*PublicType
 }
 
 type PublicRoute struct {
@@ -27,54 +30,72 @@ type PublicType struct {
 	Annotation string        `json:"annotation,omitempty"`
 }
 
+type schemaToPublicContext map[string]*PublicType
+
 // SchemaToPublic converts an internal Go Schema to a structure that is safe
 // for publication (as JSON, etc.).
 func SchemaToPublic(s *Schema) *PublicSchema {
+	context := schemaToPublicContext{}
 	schema := &PublicSchema{
 		Schema: s,
 	}
 	for _, route := range s.Routes {
-		schema.Routes = append(schema.Routes, routeToPublic(route))
+		schema.Routes = append(schema.Routes, routeToPublic(context, route))
 	}
+	schema.Types = context
 	return schema
 }
 
-func routeToPublic(r *Route) *PublicRoute {
+func routeToPublic(context schemaToPublicContext, r *Route) *PublicRoute {
 	return &PublicRoute{
 		Route:        r,
-		RequestType:  typeToPublic(r.RequestType),
-		ResponseType: typeToPublic(r.ResponseType),
-		QueryType:    typeToPublic(r.QueryType),
-		PathType:     typeToPublic(r.PathType),
+		RequestType:  typeToPublic(context, r.RequestType),
+		ResponseType: typeToPublic(context, r.ResponseType),
+		QueryType:    typeToPublic(context, r.QueryType),
+		PathType:     typeToPublic(context, r.PathType),
 	}
 }
 
 // struct -> {"name": <name>, "fields": {...}}
-func typeToPublic(t reflect.Type) *PublicType {
+func typeToPublic(context schemaToPublicContext, t reflect.Type) (out *PublicType) {
 	if t == nil {
 		return nil
 	}
+
+	hash := sha1.New()
+	_, _ = io.WriteString(hash, t.PkgPath())
+	key := fmt.Sprintf("%x.%s", hash.Sum(nil), t.Name())
+
+	if _, ok := context[key]; ok {
+		return &PublicType{Kind: "ref", Name: key}
+	}
+
 	switch t.Kind() {
 	case reflect.Struct:
 		fields := []*PublicType{}
+		pt := &PublicType{
+			Kind: "struct",
+			Name: t.Name(),
+		}
+		context[key] = pt
 		for i := 0; i < t.NumField(); i++ {
 			f := t.Field(i)
-			j := typeToPublic(f.Type)
+			j := typeToPublic(context, f.Type)
 			j.Annotation = string(f.Tag)
 			j.Name = f.Name
 			fields = append(fields, j)
 		}
-		return &PublicType{
-			Kind:   "struct",
-			Name:   t.Name(),
-			Fields: fields,
-		}
+		pt.Fields = fields
+		return &PublicType{Kind: "ref", Name: key}
 
 	case reflect.Ptr:
-		return typeToPublic(t.Elem())
+		return typeToPublic(context, t.Elem())
 
 	case reflect.Interface:
 		return &PublicType{Kind: "any"}
+
+	case reflect.Bool:
+		return &PublicType{Kind: "bool"}
 
 	case reflect.String:
 		return &PublicType{Kind: "string"}
@@ -116,10 +137,10 @@ func typeToPublic(t reflect.Type) *PublicType {
 		return &PublicType{Kind: "float64"}
 
 	case reflect.Slice:
-		return &PublicType{Kind: "slice", Value: typeToPublic(t.Elem())}
+		return &PublicType{Kind: "slice", Value: typeToPublic(context, t.Elem())}
 
 	case reflect.Map:
-		return &PublicType{Kind: "map", Key: typeToPublic(t.Key()), Value: typeToPublic(t.Elem())}
+		return &PublicType{Kind: "map", Key: typeToPublic(context, t.Key()), Value: typeToPublic(context, t.Elem())}
 	}
 	panic(fmt.Sprintf("unsupported type %s", t))
 }
