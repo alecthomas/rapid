@@ -13,28 +13,42 @@ var (
 
 type Routes []*Route
 
+func (r Routes) Len() int           { return len(r) }
+func (r Routes) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
+func (r Routes) Less(i, j int) bool { return r[i].Path < r[j].Path }
+
 type Schema struct {
 	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Description string `json:"description"`
+	Example     string `json:"example"`
+	Version     string `json:"version,omitempty"`
 	Routes      Routes `json:"routes"`
 }
 
 type Route struct {
 	Name              string       `json:"name"`
 	Description       string       `json:"description,omitempty"`
+	Example           string       `json:"example,omitempty"`
 	Path              string       `json:"path"`
 	Method            string       `json:"method"`
 	StreamingResponse bool         `json:"streaming_response,omitempty"`
 	RequestType       reflect.Type `json:"request_type"`
-	ResponseType      reflect.Type `json:"response_type"`
+	Responses         []*Response  `json:"responses"`
 	QueryType         reflect.Type `json:"query_type"`
 	PathType          reflect.Type `json:"path_type"`
 
-	SuccessStatus int  `json:"-"`
-	Hidden        bool `json:"-"`
+	Hidden bool `json:"-"`
 }
 
-func collectStructTypes(types map[reflect.Type]struct{}, t reflect.Type) {
+type Response struct {
+	Status      int          `json:"status"`
+	Description string       `json:"description"`
+	ContentType string       `json:"content_type,omitempty"`
+	Type        reflect.Type `json:"type"`
+	Streaming   bool         `json:"streaming,omitempty"`
+}
+
+func setStructType(types map[reflect.Type]struct{}, t reflect.Type) {
 	if t == nil {
 		return
 	}
@@ -43,9 +57,6 @@ func collectStructTypes(types map[reflect.Type]struct{}, t reflect.Type) {
 	}
 	if t.Kind() == reflect.Struct {
 		types[t] = struct{}{}
-		for i := 0; i < t.NumField(); i++ {
-			collectStructTypes(types, t.Field(i).Type)
-		}
 	}
 }
 
@@ -53,10 +64,12 @@ func collectStructTypes(types map[reflect.Type]struct{}, t reflect.Type) {
 func (s *Schema) Types() []reflect.Type {
 	types := map[reflect.Type]struct{}{}
 	for _, route := range s.Routes {
-		collectStructTypes(types, route.RequestType)
-		collectStructTypes(types, route.ResponseType)
-		collectStructTypes(types, route.QueryType)
-		collectStructTypes(types, route.PathType)
+		setStructType(types, route.RequestType)
+		for _, r := range route.Responses {
+			setStructType(types, r.Type)
+		}
+		setStructType(types, route.QueryType)
+		setStructType(types, route.PathType)
 	}
 
 	out := []reflect.Type{}
@@ -104,7 +117,3 @@ func InterpolatePath(path string, args ...interface{}) string {
 	}
 	return out
 }
-
-func (r Routes) Len() int           { return len(r) }
-func (r Routes) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
-func (r Routes) Less(i, j int) bool { return r[i].Path < r[j].Path && r[i].Method < r[j].Method }

@@ -1,9 +1,9 @@
 package rapid
 
 import (
-	"github.com/alecthomas/rapid/schema"
-
 	"reflect"
+
+	"github.com/alecthomas/rapid/schema"
 )
 
 type Definition struct {
@@ -20,8 +20,18 @@ func Define(name string) *Definition {
 	}
 }
 
-func (d *Definition) Description(description string) *Definition {
-	d.Schema.Description = description
+func (d *Definition) Description(text string) *Definition {
+	d.Schema.Description = text
+	return d
+}
+
+func (d *Definition) Example(text string) *Definition {
+	d.Schema.Example = text
+	return d
+}
+
+func (d *Definition) Version(version string) *Definition {
+	d.Schema.Version = version
 	return d
 }
 
@@ -86,6 +96,11 @@ func (r *Route) Description(text string) *Route {
 	return r
 }
 
+func (r *Route) Example(text string) *Route {
+	r.model.Example = text
+	return r
+}
+
 // Query sets the type used to decode a request's query parameters. Each
 // parameter is deserialized into the corresponding parameter using
 // gorilla/schema.
@@ -107,8 +122,16 @@ func (r *Route) Request(req interface{}) *Route {
 	return r
 }
 
-func (r *Route) Response(resp interface{}) *Route {
-	r.model.ResponseType = reflect.TypeOf(resp)
+// Response adds a response definition.
+func (r *Route) Response(status int, resp interface{}) *Route {
+	return r.DefineResponse(&schema.Response{
+		Status: status,
+		Type:   reflect.TypeOf(resp),
+	})
+}
+
+func (r *Route) DefineResponse(response *schema.Response) *Route {
+	r.model.Responses = append(r.model.Responses, response)
 	return r
 }
 
@@ -116,11 +139,5 @@ func (r *Route) Response(resp interface{}) *Route {
 // (chan <type>, chan error).
 func (r *Route) Streaming() *Route {
 	r.model.StreamingResponse = true
-	return r
-}
-
-// SuccessStatus overrides the status code to return for a successful (no error) response.
-func (r *Route) SuccessStatus(status int) *Route {
-	r.model.SuccessStatus = status
 	return r
 }

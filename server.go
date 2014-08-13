@@ -147,6 +147,13 @@ func (s *Server) SetLogger(log Logger) *Server {
 	return s
 }
 
+func indirect(t reflect.Type) reflect.Type {
+	if t.Kind() == reflect.Ptr {
+		return indirect(t.Elem())
+	}
+	return t
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.log.Debugf("%s %s", r.Method, r.URL)
 
@@ -162,7 +169,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Decode path parameters, if any.
 	if match.route.PathType != nil {
-		path := reflect.New(match.route.PathType.Elem()).Interface()
+		path := reflect.New(indirect(match.route.PathType)).Interface()
 		values := url.Values{}
 		for key, value := range parts {
 			values.Add(key, value)
@@ -178,7 +185,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Decode query parameters, if any.
 	if match.route.QueryType != nil {
-		query := reflect.New(match.route.QueryType.Elem()).Interface()
+		query := reflect.New(indirect(match.route.QueryType)).Interface()
 		err := structschema.NewDecoder().Decode(query, r.URL.Query())
 		if err != nil {
 			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
@@ -188,9 +195,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		i.Map(query)
 	}
 
-	// Decode rqeuest body, if any.
+	// Decode request body, if any.
 	if match.route.RequestType != nil {
-		req := reflect.New(match.route.RequestType.Elem()).Interface()
+		req := reflect.New(indirect(match.route.RequestType)).Interface()
 		err := json.NewDecoder(r.Body).Decode(req)
 		if err != nil {
 			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
@@ -265,13 +272,12 @@ func (s *Server) handleScalar(route *schema.Route, w http.ResponseWriter, r *htt
 	if !rerr.IsNil() {
 		err = rerr.Interface().(error)
 	}
-	status, err := s.protocol.TranslateError(r, route.SuccessStatus, err)
+	status, err := s.protocol.TranslateError(r, 0, err)
 	if err != nil {
 		data = nil
 	}
 	s.protocol.WriteHeader(w, r, status)
 	s.protocol.EncodeResponse(w, r, status, err, data)
-
 }
 
 func (s *Server) writeResponse(w http.ResponseWriter, r *http.Request, status int, err error, data interface{}) {
@@ -305,8 +311,8 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w ht
 		return
 	}
 
-	status, _ := s.protocol.TranslateError(r, route.SuccessStatus, nil)
-	// No error? Flush the 200 and star the main select loop.
+	status, _ := s.protocol.TranslateError(r, 0, nil)
+	// No error? Flush the status and start the main select loop.
 	s.protocol.WriteHeader(w, r, status)
 	fw.Flush()
 	defer cw.Close()

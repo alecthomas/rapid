@@ -46,7 +46,7 @@ func TestServerMethodExists(t *testing.T) {
 
 func TestServerCallsMethod(t *testing.T) {
 	svc := Define("Test")
-	svc.Route("Index").Get("/{id}").Request(&indexRequest{}).Response(&indexResponse{})
+	svc.Route("Index").Get("/{id}").Request(&indexRequest{}).Response(200, &indexResponse{})
 
 	test := &testServer{}
 	svr, _ := NewServer(svc, test)
@@ -65,7 +65,7 @@ func TestServerCallsMethod(t *testing.T) {
 
 func TestPatternRegex(t *testing.T) {
 	svc := Define("Test")
-	svc.Route("Index").Get(`/{id:\d\{1,3\}}`).Request(&indexRequest{}).Response(&indexResponse{})
+	svc.Route("Index").Get(`/{id:\d\{1,3\}}`).Request(&indexRequest{}).Response(200, &indexResponse{})
 
 	test := &testServer{}
 	svr, _ := NewServer(svc, test)
@@ -94,7 +94,7 @@ func (t *testChunkedServer) Index(params map[string]interface{}) {
 
 func TestServerChunkedResponses(t *testing.T) {
 	svc := Define("Test")
-	svc.Route("Index").Get("/{id}").Response(&indexResponse{})
+	svc.Route("Index").Get("/{id}").Response(200, &indexResponse{})
 }
 
 type pathData struct {

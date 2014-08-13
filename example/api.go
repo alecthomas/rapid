@@ -20,12 +20,12 @@ type User struct {
 }
 
 func UserServiceDefinition() *rapid.Definition {
-	users := rapid.Define("Users").Description("An API for managing users.")
-	users.Route("CreateUser").Post("/users").Request(&User{}).Description("Create a new user.")
-	users.Route("ListUsers").Get("/users").Response([]*User{}).Description("Retrieve a list of known users.").Query(&UsersQuery{})
-	users.Route("GetUser").Get("/users/{username}").Response(&User{}).Description("Retrieve a single user by username.").Path(&UserPath{})
-	users.Route("Changes").Get("/changes").Streaming().Response(0).Description("A streaming response of change IDs.")
-	return users
+	api := rapid.Define("Users").Description("An API for managing users.")
+	api.Route("CreateUser").Post("/").Request(&User{}).Description("Create a new user.")
+	api.Route("ListUsers").Get("/").Response(200, []*User{}).Description("Retrieve a list of known users.").Query(&UsersQuery{})
+	api.Route("GetUser").Get("/{username}").Response(200, &User{}).Description("Retrieve a single user by username.").Path(&UserPath{})
+	api.Route("Changes").Get("/changes").Streaming().Response(200, 0).Description("A streaming response of change IDs.")
+	return api
 }
 
 type UserService struct {
