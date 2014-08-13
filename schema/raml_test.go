@@ -30,9 +30,9 @@ type TestRAMLResponseType struct {
 
 func makeTestSchema() *schema.Schema {
 	d := rapid.Define("Test")
-	d.Route("List").Get("/user").Response(200, []TestRAMLResponseType{})
-	d.Route("Get").Get("/user/{id}").Query(TestRAMLQueryType{}).Path(TestRAMLPathType{}).Response(200, TestRAMLResponseType{})
-	return d.Schema
+	d.Route("List", "/user").Get().Response(200, []TestRAMLResponseType{})
+	d.Route("Get", "/user/{id}").Get().Query(TestRAMLQueryType{}).Path(TestRAMLPathType{}).Response(200, TestRAMLResponseType{})
+	return d.Build()
 }
 
 func TestSchemaToRAML(t *testing.T) {

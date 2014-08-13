@@ -103,35 +103,37 @@ type routeMatch struct {
 }
 
 type Server struct {
-	definition *Definition
-	matches    []*routeMatch
-	protocol   Protocol
-	log        Logger
-	Injector   inject.Injector
+	schema   *schema.Schema
+	matches  []*routeMatch
+	protocol Protocol
+	log      Logger
+	Injector inject.Injector
 }
 
-func NewServer(definition *Definition, handler interface{}) (*Server, error) {
-	matches := make([]*routeMatch, 0, len(definition.Schema.Routes))
+func NewServer(schema *schema.Schema, handler interface{}) (*Server, error) {
+	matches := []*routeMatch{}
 	hr := reflect.ValueOf(handler)
-	for _, route := range definition.Schema.Routes {
-		pattern, params := route.CompilePath()
-		method := hr.MethodByName(route.Name)
-		if !method.IsValid() {
-			return nil, fmt.Errorf("no such method %s.%s", hr.Type(), route.Name)
+	for _, resource := range schema.Resources {
+		for _, route := range resource.Routes {
+			pattern, params := route.CompilePath()
+			method := hr.MethodByName(route.Name)
+			if !method.IsValid() {
+				return nil, fmt.Errorf("no such method %s.%s", hr.Type(), route.Name)
+			}
+			matches = append(matches, &routeMatch{
+				route:   route,
+				pattern: pattern,
+				params:  params,
+				method:  method,
+			})
 		}
-		matches = append(matches, &routeMatch{
-			route:   route,
-			pattern: pattern,
-			params:  params,
-			method:  method,
-		})
 	}
 	s := &Server{
-		definition: definition,
-		matches:    matches,
-		protocol:   &DefaultProtocol{},
-		log:        &loggerSink{},
-		Injector:   inject.New(),
+		schema:   schema,
+		matches:  matches,
+		protocol: &DefaultProtocol{},
+		log:      &loggerSink{},
+		Injector: inject.New(),
 	}
 	s.Injector.MapTo(s.protocol, (*Protocol)(nil))
 	return s, nil

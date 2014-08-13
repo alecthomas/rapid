@@ -18,10 +18,17 @@ func (r Routes) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
 func (r Routes) Less(i, j int) bool { return r[i].Path < r[j].Path }
 
 type Schema struct {
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	Example     string               `json:"example"`
+	Version     string               `json:"version,omitempty"`
+	Resources   map[string]*Resource `json:"resources"`
+}
+
+type Resource struct {
+	Path        string `json:"path"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	Example     string `json:"example"`
-	Version     string `json:"version,omitempty"`
 	Routes      Routes `json:"routes"`
 }
 
@@ -37,7 +44,7 @@ type Route struct {
 	QueryType         reflect.Type `json:"query_type"`
 	PathType          reflect.Type `json:"path_type"`
 
-	Hidden bool `json:"-"`
+	Hidden bool `json:"-"` // A hint that this should be hidden from public API descriptions.
 }
 
 type Response struct {
@@ -60,16 +67,18 @@ func setStructType(types map[reflect.Type]struct{}, t reflect.Type) {
 	}
 }
 
-// Types returns a set of all references types used in the schema.
+// Types returns a set of all referenced types used in the schema.
 func (s *Schema) Types() []reflect.Type {
 	types := map[reflect.Type]struct{}{}
-	for _, route := range s.Routes {
-		setStructType(types, route.RequestType)
-		for _, r := range route.Responses {
-			setStructType(types, r.Type)
+	for _, resource := range s.Resources {
+		for _, route := range resource.Routes {
+			setStructType(types, route.RequestType)
+			for _, r := range route.Responses {
+				setStructType(types, r.Type)
+			}
+			setStructType(types, route.QueryType)
+			setStructType(types, route.PathType)
 		}
-		setStructType(types, route.QueryType)
-		setStructType(types, route.PathType)
 	}
 
 	out := []reflect.Type{}

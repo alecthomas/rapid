@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"text/template"
 )
@@ -248,7 +247,6 @@ type goClientContext struct {
 }
 
 func SchemaToGoClient(schema *Schema, pkg string, w io.Writer) error {
-	sort.Sort(schema.Routes)
 	imports := map[string]struct{}{
 		"github.com/alecthomas/rapid": struct{}{},
 	}

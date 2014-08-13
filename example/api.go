@@ -5,6 +5,8 @@ import (
 	"path"
 	"time"
 
+	"github.com/alecthomas/rapid/schema"
+
 	"github.com/alecthomas/rapid"
 
 	"github.com/alecthomas/go-logging"
@@ -19,13 +21,13 @@ type User struct {
 	Name string
 }
 
-func UserServiceDefinition() *rapid.Definition {
+func UserServiceDefinition() *schema.Schema {
 	api := rapid.Define("Users").Description("An API for managing users.")
-	api.Route("CreateUser").Post("/").Request(&User{}).Description("Create a new user.")
-	api.Route("ListUsers").Get("/").Response(200, []*User{}).Description("Retrieve a list of known users.").Query(&UsersQuery{})
-	api.Route("GetUser").Get("/{username}").Response(200, &User{}).Description("Retrieve a single user by username.").Path(&UserPath{})
-	api.Route("Changes").Get("/changes").Streaming().Response(200, 0).Description("A streaming response of change IDs.")
-	return api
+	api.Route("CreateUser", "/").Post().Request(&User{}).Description("Create a new user.")
+	api.Route("ListUsers", "/").Get().Response(200, []*User{}).Description("Retrieve a list of known users.").Query(&UsersQuery{})
+	api.Route("GetUser", "/{username}").Get().Response(200, &User{}).Description("Retrieve a single user by username.").Path(&UserPath{})
+	api.Route("Changes", "/changes").Get().Streaming().Response(200, 0).Description("A streaming response of change IDs.")
+	return api.Build()
 }
 
 type UserService struct {

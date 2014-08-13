@@ -32,24 +32,24 @@ func (t *testServer) Index(params Params, req *indexRequest) (*indexResponse, er
 
 func TestServerMethodDoesNotExist(t *testing.T) {
 	svc := Define("Test")
-	svc.Route("Invalid").Get("/")
-	_, err := NewServer(svc, &testServer{})
+	svc.Route("Invalid", "/").Get()
+	_, err := NewServer(svc.Build(), &testServer{})
 	assert.Error(t, err)
 }
 
 func TestServerMethodExists(t *testing.T) {
 	svc := Define("Test")
-	svc.Route("Index").Get("/")
-	_, err := NewServer(svc, &testServer{})
+	svc.Route("Index", "/").Get()
+	_, err := NewServer(svc.Build(), &testServer{})
 	assert.NoError(t, err)
 }
 
 func TestServerCallsMethod(t *testing.T) {
 	svc := Define("Test")
-	svc.Route("Index").Get("/{id}").Request(&indexRequest{}).Response(200, &indexResponse{})
+	svc.Route("Index", "/{id}").Get().Request(&indexRequest{}).Response(200, &indexResponse{})
 
 	test := &testServer{}
-	svr, _ := NewServer(svc, test)
+	svr, _ := NewServer(svc.Build(), test)
 
 	rb := bytes.NewBuffer([]byte(`{"ID": 10}`))
 	r, err := http.NewRequest("GET", "/hello", rb)
@@ -65,10 +65,10 @@ func TestServerCallsMethod(t *testing.T) {
 
 func TestPatternRegex(t *testing.T) {
 	svc := Define("Test")
-	svc.Route("Index").Get(`/{id:\d\{1,3\}}`).Request(&indexRequest{}).Response(200, &indexResponse{})
+	svc.Route("Index", `/{id:\d\{1,3\}}`).Get().Request(&indexRequest{}).Response(200, &indexResponse{})
 
 	test := &testServer{}
-	svr, _ := NewServer(svc, test)
+	svr, _ := NewServer(svc.Build(), test)
 
 	rb := bytes.NewBuffer([]byte(`{"ID": 10}`))
 	r, _ := http.NewRequest("GET", "/123456", rb)
@@ -94,7 +94,7 @@ func (t *testChunkedServer) Index(params map[string]interface{}) {
 
 func TestServerChunkedResponses(t *testing.T) {
 	svc := Define("Test")
-	svc.Route("Index").Get("/{id}").Response(200, &indexResponse{})
+	svc.Route("Index", "/{id}").Get().Response(200, &indexResponse{})
 }
 
 type pathData struct {
@@ -113,10 +113,10 @@ func (t *testPathDecodingServer) Index(path *pathData) {
 
 func TestPathDecode(t *testing.T) {
 	svc := Define("TestPathDecode")
-	svc.Route("Index").Get("/{id}").Path(&pathData{})
+	svc.Route("Index", "/{id}").Get().Path(&pathData{})
 
 	test := &testPathDecodingServer{}
-	svr, _ := NewServer(svc, test)
+	svr, _ := NewServer(svc.Build(), test)
 	r, _ := http.NewRequest("GET", "/1234", nil)
 	w := httptest.NewRecorder()
 	svr.ServeHTTP(w, r)
@@ -145,10 +145,10 @@ func (t *testQueryDecodingServer) Index(query *queryData) {
 
 func TestQueryDecode(t *testing.T) {
 	svc := Define("TestPathDecode")
-	svc.Route("Index").Get("/").Query(&queryData{})
+	svc.Route("Index", "/").Get().Query(&queryData{})
 
 	test := &testQueryDecodingServer{}
-	svr, _ := NewServer(svc, test)
+	svr, _ := NewServer(svc.Build(), test)
 	r, _ := http.NewRequest("GET", "/?id=1234", nil)
 	w := httptest.NewRecorder()
 	svr.ServeHTTP(w, r)

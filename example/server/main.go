@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/alecthomas/kingpin"
 	"github.com/alecthomas/go-logging"
+	"github.com/alecthomas/kingpin"
 
 	"github.com/alecthomas/rapid"
 	"github.com/alecthomas/rapid/example"
@@ -23,7 +23,7 @@ func main() {
 	users := example.UserServiceDefinition()
 	// err := schema.SchemaToGoClient(users.Schema, "main", os.Stdout)
 	w, _ := os.Create("./example/client/client.go")
-	err := schema.SchemaToGoClient(users.Schema, "main", w)
+	err := schema.SchemaToGoClient(users, "main", w)
 	if err != nil {
 		panic(err.Error())
 	}

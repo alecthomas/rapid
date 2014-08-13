@@ -2,101 +2,139 @@ package rapid
 
 import (
 	"reflect"
+	"strings"
 
 	"github.com/alecthomas/rapid/schema"
 )
 
-type Definition struct {
-	name   string
-	Schema *schema.Schema
+type definition struct {
+	model *schema.Schema
 }
 
 // Define a new service.
-func Define(name string) *Definition {
-	return &Definition{
-		Schema: &schema.Schema{
-			Name: name,
+func Define(name string) *definition {
+	return &definition{
+		model: &schema.Schema{
+			Name:      name,
+			Resources: map[string]*schema.Resource{},
 		},
 	}
 }
 
-func (d *Definition) Description(text string) *Definition {
-	d.Schema.Description = text
+func (d *definition) Description(text string) *definition {
+	d.model.Description = text
 	return d
 }
 
-func (d *Definition) Example(text string) *Definition {
-	d.Schema.Example = text
+func (d *definition) Example(text string) *definition {
+	d.model.Example = text
 	return d
 }
 
-func (d *Definition) Version(version string) *Definition {
-	d.Schema.Version = version
+func (d *definition) Version(version string) *definition {
+	d.model.Version = version
 	return d
 }
 
-func (d *Definition) Route(name string) *Route {
-	route := newRoute(name)
-	d.Schema.Routes = append(d.Schema.Routes, route.model)
-	return route
+func (d *definition) Resource(path, name string) *resource {
+	r := &resource{&schema.Resource{
+		Name: name,
+		Path: path,
+	}}
+	d.model.Resources[path] = r.model
+	return r
 }
 
-type Route struct {
+// Route adds a new route to the / resource.
+func (d *definition) Route(name, path string) *route {
+	// Try and find a resource.
+	var res *resource
+	parts := strings.Split(path, "/")
+	base := strings.Join(parts[:len(parts)-1], "/")
+	if base == "" {
+		base = "/"
+	}
+	if r, ok := d.model.Resources[base]; ok {
+		res = &resource{r}
+	} else {
+		res = d.Resource(base, "Root")
+	}
+	return res.Route(name, path)
+}
+
+// Build a RAPID schema.
+func (d *definition) Build() *schema.Schema {
+	return d.model
+}
+
+type resource struct {
+	model *schema.Resource
+}
+
+// Route adds a new route to this resource.
+func (r *resource) Route(name, path string) *route {
+	rt := newRoute(name, path)
+	r.model.Routes = append(r.model.Routes, rt.model)
+	return rt
+}
+
+type route struct {
 	model *schema.Route
 }
 
-func newRoute(name string) *Route {
-	return &Route{
+func newRoute(name, path string) *route {
+
+	return &route{
 		model: &schema.Route{
 			Name: name,
+			Path: path,
 		}}
 }
 
 // Method explicitly sets the HTTP method for a route.
-func (r *Route) Method(method, path string) *Route {
+func (r *route) Method(method string) *route {
 	r.model.Method = method
-	r.model.Path = path
 	return r
 }
 
 // Any matches any HTTP method.
-func (r *Route) Any(path string) *Route {
-	return r.Method("", path)
+func (r *route) Any() *route {
+	return r.Method("")
 }
 
-func (r *Route) Post(path string) *Route {
-	return r.Method("POST", path)
+func (r *route) Post() *route {
+	return r.Method("POST")
 }
 
-func (r *Route) Get(path string) *Route {
-	return r.Method("GET", path)
+func (r *route) Get() *route {
+	return r.Method("GET")
 }
 
-func (r *Route) Put(path string) *Route {
-	return r.Method("PUT", path)
+func (r *route) Put() *route {
+	return r.Method("PUT")
 }
 
-func (r *Route) Delete(path string) *Route {
-	return r.Method("DELETE", path)
+func (r *route) Delete() *route {
+	return r.Method("DELETE")
 }
 
-func (r *Route) Options(path string) *Route {
-	return r.Method("OPTIONS", path)
+func (r *route) Options() *route {
+	return r.Method("OPTIONS")
 }
 
 // Hidden hides a route from API dumps.
-func (r *Route) Hidden() *Route {
+func (r *route) Hidden() *route {
 	r.model.Hidden = true
 	return r
 }
 
 // Description of the route.
-func (r *Route) Description(text string) *Route {
+func (r *route) Description(text string) *route {
 	r.model.Description = text
 	return r
 }
 
-func (r *Route) Example(text string) *Route {
+func (r *route) Example(text string) *route {
 	r.model.Example = text
 	return r
 }
@@ -104,7 +142,7 @@ func (r *Route) Example(text string) *Route {
 // Query sets the type used to decode a request's query parameters. Each
 // parameter is deserialized into the corresponding parameter using
 // gorilla/schema.
-func (r *Route) Query(query interface{}) *Route {
+func (r *route) Query(query interface{}) *route {
 	r.model.QueryType = reflect.TypeOf(query)
 	return r
 }
@@ -112,32 +150,32 @@ func (r *Route) Query(query interface{}) *Route {
 // Path sets the type used to decode a request's path parameters. Each
 // parameter is deserialized into the corresponding parameter using
 // gorilla/schema.
-func (r *Route) Path(params interface{}) *Route {
+func (r *route) Path(params interface{}) *route {
 	r.model.PathType = reflect.TypeOf(params)
 	return r
 }
 
-func (r *Route) Request(req interface{}) *Route {
+func (r *route) Request(req interface{}) *route {
 	r.model.RequestType = reflect.TypeOf(req)
 	return r
 }
 
 // Response adds a response definition.
-func (r *Route) Response(status int, resp interface{}) *Route {
-	return r.DefineResponse(&schema.Response{
+func (r *route) Response(status int, resp interface{}) *route {
+	return r.AddResponse(&schema.Response{
 		Status: status,
 		Type:   reflect.TypeOf(resp),
 	})
 }
 
-func (r *Route) DefineResponse(response *schema.Response) *Route {
+func (r *route) AddResponse(response *schema.Response) *route {
 	r.model.Responses = append(r.model.Responses, response)
 	return r
 }
 
 // Streaming specifies that an endpoint returns a chunked streaming response
 // (chan <type>, chan error).
-func (r *Route) Streaming() *Route {
+func (r *route) Streaming() *route {
 	r.model.StreamingResponse = true
 	return r
 }
