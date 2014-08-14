@@ -2,6 +2,7 @@ package rapid
 
 import (
 	"fmt"
+	"net/http"
 	"reflect"
 	"strings"
 
@@ -16,17 +17,18 @@ type definition struct {
 func Define(name string) *definition {
 	return &definition{
 		model: &schema.Schema{
-			Name:      name,
-			Resources: map[string]*schema.Resource{},
+			Name: name,
 		},
 	}
 }
 
+// Description of the schema.
 func (d *definition) Description(text string) *definition {
 	d.model.Description = text
 	return d
 }
 
+// Example of using the schema.
 func (d *definition) Example(text string) *definition {
 	d.model.Example = text
 	return d
@@ -42,7 +44,7 @@ func (d *definition) Resource(name, path string) *resource {
 		Name: name,
 		Path: path,
 	}}
-	d.model.Resources[path] = r.model
+	d.model.Resources = append(d.model.Resources, r.model)
 	return r
 }
 
@@ -51,11 +53,14 @@ func (d *definition) Route(name, path string) *route {
 	// Try and find a resource.
 	var res *resource
 	parts := strings.Split(path, "/")
+seek:
 	for i := len(parts) - 1; i >= 0; i-- {
 		seek := strings.Join(parts[:i], "/")
-		if r, ok := d.model.Resources[seek]; ok {
-			res = &resource{r}
-			break
+		for _, r := range d.model.Resources {
+			if r.Path == seek {
+				res = &resource{r}
+				break seek
+			}
 		}
 	}
 	if res == nil {
@@ -75,13 +80,25 @@ func (d *definition) Build() *schema.Schema {
 				panic(fmt.Sprintf("route %s is not under resource %s", route, resource.Path))
 			}
 			// Check if different 200 responses have different response types. This is not supported.
+			successful := false
 			var okType reflect.Type
 			for _, response := range route.Responses {
 				if response.Status >= 200 && response.Status <= 299 {
-					if okType != nil && okType != response.Type {
+					if successful && okType != response.Type {
 						panic(fmt.Sprintf("multiple 2xx responses with differing types for %s", route))
 					}
+					okType = response.Type
+					successful = true
 				}
+			}
+			if !successful {
+				if route.Method == "GET" {
+					panic(fmt.Sprintf("no successful responses defined for %s", route))
+				}
+				route.Responses = append(route.Responses, &schema.Response{
+					Status:      http.StatusNoContent,
+					ContentType: "application/json",
+				})
 			}
 		}
 	}
@@ -110,7 +127,6 @@ type route struct {
 }
 
 func newRoute(name, path string) *route {
-
 	return &route{
 		model: &schema.Route{
 			Name: name,
@@ -187,22 +203,46 @@ func (r *route) Request(req interface{}) *route {
 	return r
 }
 
-// Response adds a response definition.
-func (r *route) Response(status int, resp interface{}) *route {
-	return r.AddResponse(&schema.Response{
-		Status: status,
-		Type:   reflect.TypeOf(resp),
-	})
+func (r *route) Response(status int, typ interface{}) *route {
+	return r.Responses(Response(status, typ))
 }
 
-func (r *route) AddResponse(response *schema.Response) *route {
-	r.model.Responses = append(r.model.Responses, response)
+func (r *route) Responses(response ...*response) *route {
+	for _, resp := range response {
+		r.model.Responses = append(r.model.Responses, resp.model)
+	}
 	return r
 }
 
-// Streaming specifies that an endpoint returns a chunked streaming response
-// (chan <type>, chan error).
-func (r *route) Streaming() *route {
-	r.model.StreamingResponse = true
+type response struct {
+	model *schema.Response
+}
+
+func Response(status int, typ interface{}) *response {
+	var t reflect.Type
+	if typ != nil {
+		t = reflect.TypeOf(typ)
+	}
+	return &response{
+		&schema.Response{
+			Status:      status,
+			Type:        t,
+			ContentType: "application/json",
+		},
+	}
+}
+
+func (r *response) Description(description string) *response {
+	r.model.Description = description
+	return r
+}
+
+func (r *response) ContentType(ct string) *response {
+	r.model.ContentType = ct
+	return r
+}
+
+func (r *response) Streaming() *response {
+	r.model.Streaming = true
 	return r
 }

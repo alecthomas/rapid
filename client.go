@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -88,7 +87,7 @@ func (r *RequestBuilder) Body(v interface{}) *RequestBuilder {
 }
 
 func (r *RequestBuilder) Build() *RequestTemplate {
-	path := r.path
+	path := strings.TrimLeft(r.path, "/")
 	q := schema.EncodeStructToURLValues(r.query)
 	if len(q) > 0 {
 		path += "?" + q.Encode()
@@ -113,46 +112,57 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 // does not perform retries.
 type BasicClient struct {
 	url        string
-	protocol   Protocol
 	HTTPClient *http.Client
 }
 
 // Dial creates a new RAPID client with url as its endpoint, using the given protocol.
-func Dial(url string, protocol Protocol) (*BasicClient, error) {
-	if protocol == nil {
-		protocol = &DefaultProtocol{}
-	}
+func Dial(url string) (*BasicClient, error) {
 	if !strings.HasSuffix(url, "/") {
 		url += "/"
 	}
 	return &BasicClient{
 		url:        url,
-		protocol:   protocol,
 		HTTPClient: &http.Client{},
 	}, nil
 }
 
-func (c *BasicClient) Do(req *RequestTemplate, resp interface{}) error {
-	hr, err := c.HTTPClient.Do(req.Build(c.url))
+func (b *BasicClient) do(req *RequestTemplate) (*http.Response, error) {
+	hr, err := b.HTTPClient.Do(req.Build(b.url))
+	if err != nil {
+		return nil, err
+	}
+	if hr.StatusCode < 200 || hr.StatusCode > 299 {
+		hr.Body.Close()
+		message := hr.Header.Get("X-Error-Message")
+		if message == "" {
+			message = hr.Status
+		}
+		return nil, Error(hr.StatusCode, message)
+	}
+	return hr, nil
+}
+
+func (b *BasicClient) Do(req *RequestTemplate, resp interface{}) error {
+	hr, err := b.do(req)
 	if err != nil {
 		return err
 	}
 	defer hr.Body.Close()
 	if resp != nil {
-		_, err = c.protocol.Decode(hr.Body, resp)
+		err = json.NewDecoder(hr.Body).Decode(resp)
 	}
 	return err
 }
 
-func (c *BasicClient) DoStreaming(req *RequestTemplate) (ClientStream, error) {
-	hr, err := c.HTTPClient.Do(req.Build(c.url))
+func (b *BasicClient) DoStreaming(req *RequestTemplate) (ClientStream, error) {
+	hr, err := b.do(req)
 	if err != nil {
 		return nil, err
 	}
-	return &BasicClientStream{hr: hr, r: httputil.NewChunkedReader(hr.Body), protocol: c.protocol}, nil
+	return &BasicClientStream{hr: hr, dec: json.NewDecoder(httputil.NewChunkedReader(hr.Body))}, nil
 }
 
-func (c *BasicClient) Close() error {
+func (b *BasicClient) Close() error {
 	return nil
 }
 
@@ -162,18 +172,16 @@ type Packet struct {
 }
 
 type BasicClientStream struct {
-	hr       *http.Response
-	r        io.Reader
-	protocol Protocol
+	hr  *http.Response
+	dec *json.Decoder
 }
 
-func (c *BasicClientStream) Next(v interface{}) error {
-	_, err := c.protocol.Decode(c.r, v)
-	return err
+func (b *BasicClientStream) Next(v interface{}) error {
+	return b.dec.Decode(v)
 }
 
-func (c *BasicClientStream) Close() error {
-	c.hr.Body.Close()
+func (b *BasicClientStream) Close() error {
+	b.hr.Body.Close()
 	return nil
 }
 

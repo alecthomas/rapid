@@ -22,7 +22,7 @@ var (
 func main() {
 	command := kingpin.Parse()
 
-	c, err := DialUsers("http://localhost:8090", nil)
+	c, err := DialUsersClient("http://localhost:8090")
 	kingpin.FatalIfError(err, "failed to dial server")
 
 	switch command {

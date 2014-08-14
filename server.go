@@ -33,30 +33,30 @@ func (l *loggerSink) Errorf(fmt string, args ...interface{})   {}
 
 type CloseNotifierChannel chan bool
 
-type ChunkedResponseWriter struct {
+type chunkedResponseWriter struct {
 	w  http.ResponseWriter
 	cw io.WriteCloser
 }
 
-func NewChunkedResponseWriter(w http.ResponseWriter) *ChunkedResponseWriter {
-	return &ChunkedResponseWriter{
+func newChunkedResponseWriter(w http.ResponseWriter) *chunkedResponseWriter {
+	return &chunkedResponseWriter{
 		w:  w,
 		cw: httputil.NewChunkedWriter(w),
 	}
 }
 
-func (c *ChunkedResponseWriter) Header() http.Header {
+func (c *chunkedResponseWriter) Header() http.Header {
 	return c.w.Header()
 }
 
-func (c *ChunkedResponseWriter) Write(b []byte) (int, error) {
+func (c *chunkedResponseWriter) Write(b []byte) (int, error) {
 	return c.cw.Write(b)
 }
-func (c *ChunkedResponseWriter) WriteHeader(status int) {
+func (c *chunkedResponseWriter) WriteHeader(status int) {
 	c.WriteHeader(status)
 }
 
-func (c *ChunkedResponseWriter) Close() error {
+func (c *chunkedResponseWriter) Close() error {
 	return c.cw.Close()
 }
 
@@ -135,7 +135,6 @@ func NewServer(schema *schema.Schema, handler interface{}) (*Server, error) {
 		log:      &loggerSink{},
 		Injector: inject.New(),
 	}
-	s.Injector.MapTo(s.protocol, (*Protocol)(nil))
 	return s, nil
 }
 
@@ -143,7 +142,6 @@ func (s *Server) SetProtocol(protocol Protocol) *Server {
 	s.protocol = protocol
 	return s
 }
-
 func (s *Server) SetLogger(log Logger) *Server {
 	s.log = log
 	return s
@@ -156,13 +154,20 @@ func indirect(t reflect.Type) reflect.Type {
 	return t
 }
 
+func writeError(w http.ResponseWriter, status int, err error) {
+	if err != nil {
+		w.Header().Set("X-Error-Message", err.Error())
+	}
+	w.WriteHeader(status)
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.log.Debugf("%s %s", r.Method, r.URL)
 
 	// Match URL and method.
 	match, parts := s.match(r)
 	if match == nil {
-		s.protocol.NotFound(w, r)
+		writeError(w, http.StatusNotFound, nil)
 		return
 	}
 
@@ -178,8 +183,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		err := structschema.NewDecoder().Decode(path, values)
 		if err != nil {
-			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
-			s.protocol.EncodeResponse(w, r, http.StatusBadRequest, err, nil)
+			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 		i.Map(path)
@@ -190,8 +194,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		query := reflect.New(indirect(match.route.QueryType)).Interface()
 		err := structschema.NewDecoder().Decode(query, r.URL.Query())
 		if err != nil {
-			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
-			s.protocol.EncodeResponse(w, r, http.StatusBadRequest, err, nil)
+			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 		i.Map(query)
@@ -202,8 +205,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req := reflect.New(indirect(match.route.RequestType)).Interface()
 		err := json.NewDecoder(r.Body).Decode(req)
 		if err != nil {
-			s.protocol.WriteHeader(w, r, http.StatusBadRequest)
-			s.protocol.EncodeResponse(w, r, http.StatusBadRequest, err, nil)
+			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 		i.Map(req)
@@ -214,7 +216,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	i.Map(parts)
 
 	var closeNotifier CloseNotifierChannel
-	if match.route.StreamingResponse {
+	defaultResponse := match.route.DefaultResponse()
+	if defaultResponse.Streaming {
 		closeNotifier = make(CloseNotifierChannel)
 		i.Map(closeNotifier)
 	}
@@ -227,7 +230,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case 1: // Single value is always an error, so we just synthesize (nil, error).
-		if match.route.StreamingResponse {
+		if defaultResponse.Streaming {
 			panic("streaming responses must return (chan <type>, chan error)")
 		}
 		result = []reflect.Value{reflect.ValueOf((*struct{})(nil)), result[0]}
@@ -238,7 +241,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		panic(fmt.Errorf("handler method %s.%s should return (<response>, <error>)", match.method.Type(), match.route.Name))
 	}
-	if match.route.StreamingResponse {
+	if defaultResponse.Streaming {
 		s.log.Debugf("%s %s -> streaming response", r.Method, r.URL)
 		s.handleStream(match.route, closeNotifier, w, r, result[0], result[1])
 	} else {
@@ -276,31 +279,34 @@ func (s *Server) handleScalar(route *schema.Route, w http.ResponseWriter, r *htt
 	}
 	status, err := s.protocol.TranslateError(r, 0, err)
 	if err != nil {
-		data = nil
+		writeError(w, status, err)
+		return
 	}
-	s.protocol.WriteHeader(w, r, status)
-	s.protocol.EncodeResponse(w, r, status, err, data)
-}
-
-func (s *Server) writeResponse(w http.ResponseWriter, r *http.Request, status int, err error, data interface{}) {
-	s.protocol.WriteHeader(w, r, status)
-	s.protocol.EncodeResponse(w, r, status, err, data)
+	body, err := json.Marshal(data)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	w.WriteHeader(status)
+	w.Write(body)
 }
 
 func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
 	fw, ok := w.(http.Flusher)
 	if !ok {
-		s.writeResponse(w, r, http.StatusInternalServerError, errors.New("HTTP writer does not support flushing"), nil)
+		writeError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support flushing"))
 		return
 	}
 
 	cn, ok := w.(http.CloseNotifier)
 	if !ok {
-		s.writeResponse(w, r, http.StatusInternalServerError, errors.New("HTTP writer does not support close notifications"), nil)
+		writeError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support close notifications"))
 		return
 	}
 
-	cw := NewChunkedResponseWriter(w)
+	cw := newChunkedResponseWriter(w)
 
 	// If we have an immediate error, return this directly in the HTTP
 	// response rather than streaming it.
@@ -309,15 +315,18 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w ht
 	cases := []reflect.SelectCase{dc, ec}
 	if _, recv, ok := reflect.Select(cases); ok {
 		status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
-		s.writeResponse(w, r, status, err, nil)
+		writeError(w, status, err)
 		return
 	}
 
 	status, _ := s.protocol.TranslateError(r, 0, nil)
 	// No error? Flush the status and start the main select loop.
-	s.protocol.WriteHeader(w, r, status)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	fw.Flush()
 	defer cw.Close()
+
+	enc := json.NewEncoder(cw)
 
 	rc := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: rdata}
 	nc := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(cn.CloseNotify())}
@@ -330,13 +339,12 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w ht
 				if data == nil {
 					return
 				}
-				s.protocol.EncodeResponse(cw, r, http.StatusOK, nil, data)
+				enc.Encode(data)
 				fw.Flush()
 
 			case 1: // error
-				status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
+				_, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
 				s.log.Debugf("Closing HTTP connection, streaming handler returned error: %s", err)
-				s.protocol.EncodeResponse(cw, r, status, err, nil)
 				return
 
 			case 2: // CloseNotifier

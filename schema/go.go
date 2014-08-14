@@ -11,6 +11,67 @@ import (
 	"text/template"
 )
 
+var (
+	goTemplate = `package {{.Package}}
+
+import (
+{{range $key, $value := .Imports}}
+	"{{$key}}"{{end}}
+)
+
+{{if .Schema.Description}}// {{.Schema.Name}}Client - {{.Schema.Description}}{{end}}
+type {{.Schema.Name}}Client struct {
+	c rapid.Client
+}
+
+{{if .Schema.Description}}// Dial{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API.{{end}}
+func Dial{{.Schema.Name}}Client(url string) (*{{.Schema.Name}}Client, error) {
+	c, err := rapid.Dial(url)
+	if err != nil {
+		return nil, err
+	}
+	return &{{.Schema.Name}}Client{c}, nil
+}
+
+
+{{if .Schema.Description}}// New{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API using an existing rapid.Client.{{end}}
+func New{{.Schema.Name}}Client(client rapid.Client) *{{.Schema.Name}}Client {
+	return &{{.Schema.Name}}Client{client}
+}
+
+{{range .Schema.Resources}}
+{{range .Routes}}
+{{$response := .DefaultResponse}}
+{{if not .Hidden}}
+{{if $response.Streaming}}
+type {{.Name}}Stream struct {
+	stream rapid.ClientStream
+}
+
+func (s *{{.Name}}Stream) Next() ({{$response.Type|type}}, error) {
+	{{var "v" $response.Type}}
+	err := s.stream.Next({{ref "v" $response.Type}})
+	return v, err
+}
+
+func (s *{{.Name}}Stream) Close() error {
+	return s.stream.Close()
+}
+{{end}}
+{{if .Description}}// {{.Name}} - {{.Description}}{{end}}
+func (a *{{$.Schema.Name}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}{{end}}) ({{if $response.Streaming}}*{{.Name}}Stream, {{else}}{{if $response.Type}}{{$response.Type|type}}, {{end}}{{end}}error) {
+	{{if and (not $response.Streaming) $response.Type}}{{var "resp" $response.Type}}
+	{{end}}r := rapid.Request("{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}.Build()
+	{{if $response.Streaming}}stream, err := a.c.DoStreaming({{else}}err := a.c.Do({{end}}r, {{if not $response.Streaming}}{{ref "resp" $response.Type}},{{end}})
+	{{if $response.Streaming}}return &{{.Name}}Stream{stream}, err{{else}}{{if $response.Type}}return resp, err{{else}}return err{{end}}{{end}}
+}
+{{end}}
+{{end}}
+{{end}}
+
+`
+)
+
 func goTypeReference(pkg string, t reflect.Type) string {
 	switch t.Kind() {
 	case reflect.Struct:
@@ -178,69 +239,6 @@ func goTypeRef(name string, t reflect.Type) string {
 		return "&" + name
 	}
 }
-
-var (
-	goTemplate = `package {{.Package}}
-
-import (
-{{range $key, $value := .Imports}}
-	"{{$key}}"{{end}}
-)
-
-{{if .Schema.Description}}// {{.Schema.Name}}Client - {{.Schema.Description}}{{end}}
-type {{.Schema.Name}}Client struct {
-	c rapid.Client
-}
-
-{{if .Schema.Description}}// Dial{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API.{{end}}
-func Dial{{.Schema.Name}}Client(url string, protocol rapid.Protocol) (*{{.Schema.Name}}Client, error) {
-	if protocol == nil {
-		protocol = &rapid.DefaultProtocol{}
-	}
-	c, err := rapid.Dial(url, protocol)
-	if err != nil {
-		return nil, err
-	}
-	return &{{.Schema.Name}}Client{c}, nil
-}
-
-
-{{if .Schema.Description}}// New{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API using an existing rapid.Client.{{end}}
-func New{{.Schema.Name}}Client(client rapid.Client) *{{.Schema.Name}}Client {
-	return &{{.Schema.Name}}Client{client}
-}
-
-{{range .Schema.Resources}}
-{{range .Routes}}
-{{if not .Hidden}}
-{{if .StreamingResponse}}
-type {{.Name}}Stream struct {
-	stream rapid.ClientStream
-}
-
-func (s *{{.Name}}Stream) Next() ({{.DefaultResponse.Type|type}}, error) {
-	{{var "v" .DefaultResponse.Type}}
-	err := s.stream.Next({{ref "v" .DefaultResponse.Type}})
-	return v, err
-}
-
-func (s *{{.Name}}Stream) Close() error {
-	return s.stream.Close()
-}
-{{end}}
-{{if .Description}}// {{.Name}} - {{.Description}}{{end}}
-func (a *{{$.Schema.Name}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}{{end}}) ({{if .StreamingResponse}}*{{.Name}}Stream, {{else}}{{if .DefaultResponse.Type}}{{.DefaultResponse.Type|type}}, {{end}}{{end}}error) {
-	{{if and (not .StreamingResponse) .DefaultResponse.Type}}{{var "resp" .DefaultResponse.Type}}
-	{{end}}r := rapid.Request("{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}.Build()
-	{{if .StreamingResponse}}stream, err := a.c.DoStreaming({{else}}err := a.c.Do({{end}}r, {{if not .StreamingResponse}}{{ref "resp" .DefaultResponse.Type}},{{end}})
-	{{if .StreamingResponse}}return &{{.Name}}Stream{stream}, err{{else}}{{if .DefaultResponse.Type}}return resp, err{{else}}return err{{end}}{{end}}
-}
-{{end}}
-{{end}}
-{{end}}
-
-`
-)
 
 type goClientContext struct {
 	Imports map[string]struct{}

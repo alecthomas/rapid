@@ -18,11 +18,20 @@ func (r Routes) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
 func (r Routes) Less(i, j int) bool { return r[i].Path < r[j].Path }
 
 type Schema struct {
-	Name        string               `json:"name"`
-	Description string               `json:"description"`
-	Example     string               `json:"example"`
-	Version     string               `json:"version,omitempty"`
-	Resources   map[string]*Resource `json:"resources"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Example     string      `json:"example"`
+	Version     string      `json:"version,omitempty"`
+	Resources   []*Resource `json:"resources"`
+}
+
+func (s *Schema) ResourceByPath(path string) *Resource {
+	for _, r := range s.Resources {
+		if r.Path == path {
+			return r
+		}
+	}
+	return nil
 }
 
 type Resource struct {
@@ -42,16 +51,15 @@ func (r *Resource) Hidden() bool {
 }
 
 type Route struct {
-	Name              string       `json:"name"`
-	Description       string       `json:"description,omitempty"`
-	Example           string       `json:"example,omitempty"`
-	Path              string       `json:"path"`
-	Method            string       `json:"method"`
-	StreamingResponse bool         `json:"streaming_response,omitempty"`
-	RequestType       reflect.Type `json:"request_type"`
-	Responses         []*Response  `json:"responses"`
-	QueryType         reflect.Type `json:"query_type"`
-	PathType          reflect.Type `json:"path_type"`
+	Name        string       `json:"name"`
+	Description string       `json:"description,omitempty"`
+	Example     string       `json:"example,omitempty"`
+	Path        string       `json:"path"`
+	Method      string       `json:"method"`
+	RequestType reflect.Type `json:"request_type"`
+	Responses   []*Response  `json:"responses"`
+	QueryType   reflect.Type `json:"query_type"`
+	PathType    reflect.Type `json:"path_type"`
 
 	Hidden bool `json:"-"` // A hint that this should be hidden from public API descriptions.
 }

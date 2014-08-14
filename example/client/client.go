@@ -10,20 +10,17 @@ type UsersClient struct {
 	c rapid.Client
 }
 
-// DialUsers creates a new client for the Users API.
-func DialUsers(url string, protocol rapid.Protocol) (*UsersClient, error) {
-	if protocol == nil {
-		protocol = &rapid.DefaultProtocol{}
-	}
-	c, err := rapid.Dial(url, protocol)
+// DialUsersClient creates a new client for the Users API.
+func DialUsersClient(url string) (*UsersClient, error) {
+	c, err := rapid.Dial(url)
 	if err != nil {
 		return nil, err
 	}
 	return &UsersClient{c}, nil
 }
 
-// NewUsers creates a new client for the Users API using an existing rapid.Client.
-func NewUsers(client rapid.Client) *UsersClient {
+// NewUsersClient creates a new client for the Users API using an existing rapid.Client.
+func NewUsersClient(client rapid.Client) *UsersClient {
 	return &UsersClient{client}
 }
 
@@ -39,14 +36,6 @@ func (a *UsersClient) ListUsers(query *example.UsersQuery) ([]*example.User, err
 	resp := []*example.User{}
 	r := rapid.Request("GET", "/users").Query(query).Build()
 	err := a.c.Do(r, &resp)
-	return resp, err
-}
-
-// GetUser - Retrieve a single user by username.
-func (a *UsersClient) GetUser(username string) (*example.User, error) {
-	resp := &example.User{}
-	r := rapid.Request("GET", "/users/{username}", username).Build()
-	err := a.c.Do(r, resp)
 	return resp, err
 }
 
@@ -66,7 +55,15 @@ func (s *ChangesStream) Close() error {
 
 // Changes - A streaming response of change IDs.
 func (a *UsersClient) Changes() (*ChangesStream, error) {
-	r := rapid.Request("GET", "/changes").Build()
+	r := rapid.Request("GET", "/users/changes").Build()
 	stream, err := a.c.DoStreaming(r)
 	return &ChangesStream{stream}, err
+}
+
+// GetUser - Retrieve a single user by username.
+func (a *UsersClient) GetUser(username string) (*example.User, error) {
+	resp := &example.User{}
+	r := rapid.Request("GET", "/users/{username}", username).Build()
+	err := a.c.Do(r, resp)
+	return resp, err
 }

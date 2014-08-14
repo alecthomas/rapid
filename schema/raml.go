@@ -1,12 +1,12 @@
 package schema
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -93,16 +93,16 @@ func SchemaToRAML(url string, s *Schema, w io.Writer) error {
 		y["schemas"] = schemas
 	}
 
-	for path, resource := range s.Resources {
+	for _, resource := range s.Resources {
 		if resource.Hidden() {
 			continue
 		}
-		rraml := routesToRAML(path, resource.Routes)
+		rraml := resourceToRAML(url, resource)
 		rraml["displayName"] = resource.Name
 		if resource.Description != "" {
 			rraml["description"] = resource.Description
 		}
-		y[path] = rraml
+		y[resource.Path] = rraml
 	}
 	b, err := yaml.Marshal(y)
 	if err != nil {
@@ -165,11 +165,11 @@ func ramlSchemaForType(t reflect.Type) rmap {
 	}
 	return rmap{
 		"schema":  schema,
-		"example": makeRAMLExample(t),
+		"example": makeRAMLExample(t, true),
 	}
 }
 
-func routesToRAML(path string, routes Routes) rmap {
+func resourceToRAML(url string, resource *Resource) rmap {
 	out := rmap{}
 	// if len(r.routes) > 0 {
 	// 	route := r.routes[0]
@@ -185,13 +185,12 @@ func routesToRAML(path string, routes Routes) rmap {
 	// 		out["uriParameters"] = op
 	// 	}
 	// }
-	sort.Sort(routes)
-	for _, r := range routes {
+	for _, r := range resource.Routes {
 		var route rmap
-		if !strings.HasPrefix(r.Path, path) {
-			panic(fmt.Sprintf("resource %s has route %s outside prefix", path, r.Path))
+		if !strings.HasPrefix(r.Path, resource.Path) {
+			panic(fmt.Sprintf("resource %s has route %s outside prefix", resource.Path, r.Path))
 		}
-		rpath := r.Path[len(path):]
+		rpath := r.Path[len(resource.Path):]
 		if rpath == "" {
 			route = out
 		} else {
@@ -241,11 +240,19 @@ func routesToRAML(path string, routes Routes) rmap {
 		// FIXME: This should work:
 		// https://github.com/raml-org/raml-js-parser/issues/108
 		// method["displayName"] = r.Name
-		if r.Description == "" {
-			method["description"] = r.Name
-		} else {
-			method["description"] = r.Name + " - " + r.Description
+		description := r.Name
+		if r.Description != "" {
+			description += " - " + r.Description
 		}
+		if !strings.Contains(description, "curl") {
+			example := makeRAMLRequestExample(url, r)
+			// FIXME: raml2html has a weird thing where it strips a leading
+			// space off subsequent indented lines. I compensate here by
+			// adding 5 characters...
+			example = "    " + strings.Join(strings.Split(example, "\n"), "\n     ")
+			description += "\n\n\n" + example
+		}
+		method["description"] = description
 		if r.RequestType != nil {
 			rreq := ramlSchemaForType(r.RequestType)
 			if r.Example != "" {
@@ -260,11 +267,36 @@ func routesToRAML(path string, routes Routes) rmap {
 	return out
 }
 
+func makeRAMLRequestExample(url string, route *Route) string {
+	w := &bytes.Buffer{}
+	w.WriteString("$ curl")
+	if route.Method != "GET" {
+		w.WriteString(" -X " + route.Method)
+	}
+	if route.RequestType != nil {
+		w.WriteString(" --data-binary '" + makeRAMLExample(route.RequestType, false) + "'")
+	}
+	w.WriteString(" " + url + route.Path)
+	w.WriteString("\n")
+	res := route.DefaultResponse()
+	if res.Type != nil {
+		w.WriteString(makeRAMLExample(res.Type, true))
+	}
+	return w.String()
+}
+
 type cycleMap map[reflect.Type]bool
 
-func makeRAMLExample(t reflect.Type) string {
+func makeRAMLExample(t reflect.Type, indent bool) string {
 	cycles := cycleMap{}
-	b, err := json.MarshalIndent(makeRAMLExampleValue(cycles, t).Interface(), "", "  ")
+	v := makeRAMLExampleValue(cycles, t).Interface()
+	var b []byte
+	var err error
+	if indent {
+		b, err = json.MarshalIndent(v, "", "  ")
+	} else {
+		b, err = json.Marshal(v)
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -347,6 +379,9 @@ func makeRAMLExampleValue(cycles cycleMap, t reflect.Type) reflect.Value {
 // }
 
 func structToRAMLParams(t reflect.Type, required bool) rmap {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
 	out := rmap{}
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)

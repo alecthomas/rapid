@@ -32,14 +32,14 @@ func (t *testServer) Index(params Params, req *indexRequest) (*indexResponse, er
 
 func TestServerMethodDoesNotExist(t *testing.T) {
 	svc := Define("Test")
-	svc.Route("Invalid", "/").Get()
+	svc.Route("Invalid", "/").Get().Response(http.StatusOK, nil)
 	_, err := NewServer(svc.Build(), &testServer{})
 	assert.Error(t, err)
 }
 
 func TestServerMethodExists(t *testing.T) {
 	svc := Define("Test")
-	svc.Route("Index", "/").Get()
+	svc.Route("Index", "/").Get().Response(http.StatusOK, nil)
 	_, err := NewServer(svc.Build(), &testServer{})
 	assert.NoError(t, err)
 }
@@ -60,7 +60,7 @@ func TestServerCallsMethod(t *testing.T) {
 	assert.Equal(t, Params{"id": "hello"}, test.params)
 	assert.Equal(t, 10, test.id)
 	assert.Equal(t, 200, w.Code)
-	assert.Equal(t, "{\"S\":200,\"D\":{\"ID\":20}}\n", w.Body.String())
+	assert.Equal(t, `{"ID":20}`, w.Body.String())
 }
 
 func TestPatternRegex(t *testing.T) {
@@ -113,7 +113,7 @@ func (t *testPathDecodingServer) Index(path *pathData) {
 
 func TestPathDecode(t *testing.T) {
 	svc := Define("TestPathDecode")
-	svc.Route("Index", "/{id}").Get().Path(&pathData{})
+	svc.Route("Index", "/{id}").Get().Path(&pathData{}).Response(http.StatusOK, nil)
 
 	test := &testPathDecodingServer{}
 	svr, _ := NewServer(svc.Build(), test)
@@ -145,7 +145,7 @@ func (t *testQueryDecodingServer) Index(query *queryData) {
 
 func TestQueryDecode(t *testing.T) {
 	svc := Define("TestPathDecode")
-	svc.Route("Index", "/").Get().Query(&queryData{})
+	svc.Route("Index", "/").Get().Query(&queryData{}).Response(http.StatusOK, nil)
 
 	test := &testQueryDecodingServer{}
 	svr, _ := NewServer(svc.Build(), test)
