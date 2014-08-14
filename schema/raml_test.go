@@ -50,5 +50,23 @@ type TestRAMLNestedStruct struct {
 }
 
 func TestMakeExample(t *testing.T) {
-	fmt.Printf("EXAMPLE = %s\n", makeRAMLExample(reflect.TypeOf(TestRAMLNestedStruct{})))
+	raml := makeRAMLExample(reflect.TypeOf(TestRAMLNestedStruct{}))
+	assert.Equal(t, `{
+  "PointerType": {
+    "ID": 0
+  },
+  "NonPointerQueryType": {
+    "Age": 0
+  },
+  "SliceOfPointers": [
+    {
+      "Age": 0
+    }
+  ],
+  "SliceOfNonPointers": [
+    {
+      "Age": 0
+    }
+  ]
+}`, raml)
 }

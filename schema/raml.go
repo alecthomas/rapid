@@ -2,9 +2,11 @@ package schema
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -69,15 +71,6 @@ func SchemaToRAML(url string, s *Schema, w io.Writer) error {
 		// https://github.com/raml-org/raml-js-parser/issues/108
 		// "displayName": s.Name,
 	}
-	rnr := &ramlNestedRoute{
-		nested: map[string]*ramlNestedRoute{},
-	}
-	for _, res := range s.Resources {
-		for _, r := range res.Routes {
-			parts := strings.Split(r.SimplifyPath(), "/")[1:]
-			buildRoutes(rnr, parts, r)
-		}
-	}
 
 	typeMap := ramlTypeMap{}
 	schemas := []rmap{}
@@ -100,8 +93,16 @@ func SchemaToRAML(url string, s *Schema, w io.Writer) error {
 		y["schemas"] = schemas
 	}
 
-	for k, v := range routesToRAML("", rnr) {
-		y[k] = v
+	for path, resource := range s.Resources {
+		if resource.Hidden() {
+			continue
+		}
+		rraml := routesToRAML(path, resource.Routes)
+		rraml["displayName"] = resource.Name
+		if resource.Description != "" {
+			rraml["description"] = resource.Description
+		}
+		y[path] = rraml
 	}
 	b, err := yaml.Marshal(y)
 	if err != nil {
@@ -168,33 +169,48 @@ func ramlSchemaForType(t reflect.Type) rmap {
 	}
 }
 
-func routesToRAML(path string, r *ramlNestedRoute) rmap {
+func routesToRAML(path string, routes Routes) rmap {
 	out := rmap{}
-	if len(r.routes) > 0 {
-		route := r.routes[0]
-		if route.PathType != nil {
-			vars := varRegex.FindAllStringSubmatch(path, -1)
-			ip := structToRAMLParams(route.PathType, true)
-			op := rmap{}
-			for _, vn := range vars {
-				if _, ok := ip[vn[1]]; ok {
-					op[vn[1]] = ip[vn[1]]
-				}
-			}
-			out["uriParameters"] = op
+	// if len(r.routes) > 0 {
+	// 	route := r.routes[0]
+	// 	if route.PathType != nil {
+	// 		vars := varRegex.FindAllStringSubmatch(path, -1)
+	// 		ip := structToRAMLParams(route.PathType, true)
+	// 		op := rmap{}
+	// 		for _, vn := range vars {
+	// 			if _, ok := ip[vn[1]]; ok {
+	// 				op[vn[1]] = ip[vn[1]]
+	// 			}
+	// 		}
+	// 		out["uriParameters"] = op
+	// 	}
+	// }
+	sort.Sort(routes)
+	for _, r := range routes {
+		var route rmap
+		if !strings.HasPrefix(r.Path, path) {
+			panic(fmt.Sprintf("resource %s has route %s outside prefix", path, r.Path))
 		}
-	}
-
-	for _, r := range r.routes {
-		rm := rmap{
+		rpath := r.Path[len(path):]
+		if rpath == "" {
+			route = out
+		} else {
+			if tr, ok := out[rpath]; ok {
+				route = tr.(rmap)
+			} else {
+				route = rmap{}
+				out[rpath] = route
+			}
+		}
+		method := rmap{
 			"responses": rmap{},
 		}
 
 		// Responses
 		responseMap := rmap{}
-		rm["responses"] = responseMap
+		method["responses"] = responseMap
 		if r.QueryType != nil {
-			rm["queryParameters"] = structToRAMLParams(r.QueryType, false)
+			method["queryParameters"] = structToRAMLParams(r.QueryType, false)
 		}
 		for _, response := range r.Responses {
 			ct := response.ContentType
@@ -224,25 +240,22 @@ func routesToRAML(path string, r *ramlNestedRoute) rmap {
 
 		// FIXME: This should work:
 		// https://github.com/raml-org/raml-js-parser/issues/108
-		// rm["displayName"] = r.Name
+		// method["displayName"] = r.Name
 		if r.Description == "" {
-			rm["description"] = r.Name
+			method["description"] = r.Name
 		} else {
-			rm["description"] = r.Name + " - " + r.Description
+			method["description"] = r.Name + " - " + r.Description
 		}
 		if r.RequestType != nil {
 			rreq := ramlSchemaForType(r.RequestType)
 			if r.Example != "" {
 				rreq["example"] = r.Example
 			}
-			rm["body"] = rmap{
+			method["body"] = rmap{
 				"application/json": rreq,
 			}
 		}
-		out[strings.ToLower(r.Method)] = rm
-	}
-	for path, sr := range r.nested {
-		out[path] = routesToRAML(path, sr)
+		route[strings.ToLower(r.Method)] = method
 	}
 	return out
 }

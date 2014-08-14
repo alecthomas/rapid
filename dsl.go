@@ -1,6 +1,7 @@
 package rapid
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -36,7 +37,7 @@ func (d *definition) Version(version string) *definition {
 	return d
 }
 
-func (d *definition) Resource(path, name string) *resource {
+func (d *definition) Resource(name, path string) *resource {
 	r := &resource{&schema.Resource{
 		Name: name,
 		Path: path,
@@ -50,25 +51,51 @@ func (d *definition) Route(name, path string) *route {
 	// Try and find a resource.
 	var res *resource
 	parts := strings.Split(path, "/")
-	base := strings.Join(parts[:len(parts)-1], "/")
-	if base == "" {
-		base = "/"
+	for i := len(parts) - 1; i >= 0; i-- {
+		seek := strings.Join(parts[:i], "/")
+		if r, ok := d.model.Resources[seek]; ok {
+			res = &resource{r}
+			break
+		}
 	}
-	if r, ok := d.model.Resources[base]; ok {
-		res = &resource{r}
-	} else {
-		res = d.Resource(base, "Root")
+	if res == nil {
+		res = d.Resource(name, path)
 	}
 	return res.Route(name, path)
 }
 
 // Build a RAPID schema.
 func (d *definition) Build() *schema.Schema {
+	for _, resource := range d.model.Resources {
+		for _, route := range resource.Routes {
+			if route.Path == "" {
+				panic(fmt.Sprintf("route %s with empty path", route.Name))
+			}
+			if !strings.HasPrefix(route.Path, resource.Path) {
+				panic(fmt.Sprintf("route %s is not under resource %s", route, resource.Path))
+			}
+			// Check if different 200 responses have different response types. This is not supported.
+			var okType reflect.Type
+			for _, response := range route.Responses {
+				if response.Status >= 200 && response.Status <= 299 {
+					if okType != nil && okType != response.Type {
+						panic(fmt.Sprintf("multiple 2xx responses with differing types for %s", route))
+					}
+				}
+			}
+		}
+	}
 	return d.model
 }
 
 type resource struct {
 	model *schema.Resource
+}
+
+// Description of resource.
+func (r *resource) Description(description string) *resource {
+	r.model.Description = description
+	return r
 }
 
 // Route adds a new route to this resource.

@@ -33,6 +33,7 @@ func MustClient(client Client, err error) Client {
 	return client
 }
 
+// A RequestTemplate can be used to build a new http.Request from scratch.
 type RequestTemplate struct {
 	method string
 	path   string
@@ -44,7 +45,9 @@ func (r *RequestTemplate) Build(url string) *http.Request {
 	if err != nil {
 		panic(err)
 	}
-	h.Header.Set("Content-Type", "application/json")
+	if r.body != nil && r.body.Len() > 0 {
+		h.Header.Set("Content-Type", "application/json")
+	}
 	return h
 }
 

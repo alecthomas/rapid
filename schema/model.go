@@ -32,6 +32,15 @@ type Resource struct {
 	Routes      Routes `json:"routes"`
 }
 
+func (r *Resource) Hidden() bool {
+	for _, route := range r.Routes {
+		if !route.Hidden {
+			return false
+		}
+	}
+	return true
+}
+
 type Route struct {
 	Name              string       `json:"name"`
 	Description       string       `json:"description,omitempty"`
@@ -45,6 +54,21 @@ type Route struct {
 	PathType          reflect.Type `json:"path_type"`
 
 	Hidden bool `json:"-"` // A hint that this should be hidden from public API descriptions.
+}
+
+func (r *Route) String() string {
+	return fmt.Sprintf("%s %s", r.Method, r.Path)
+}
+
+// DefaultResponse returns the first response with a 2xx status code, assumed
+// to be the default response.
+func (r *Route) DefaultResponse() *Response {
+	for _, response := range r.Responses {
+		if response.Status >= 200 && response.Status <= 299 {
+			return response
+		}
+	}
+	return nil
 }
 
 type Response struct {
