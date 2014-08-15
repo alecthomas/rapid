@@ -11,7 +11,10 @@ import (
 	"github.com/alecthomas/rapid/schema"
 )
 
+type BeforeClientRequest func(*http.Request) error
+
 type Client interface {
+	BeforeRequest(hook BeforeClientRequest) error
 	Do(req *RequestTemplate, resp interface{}) error
 	DoStreaming(req *RequestTemplate) (ClientStream, error)
 	Close() error
@@ -20,6 +23,14 @@ type Client interface {
 type ClientStream interface {
 	Next(v interface{}) error
 	Close() error
+}
+
+// BasicAuthHook is a BeforeRequest hook for performing basic auth.
+func BasicAuthHook(username, password string) BeforeClientRequest {
+	return func(req *http.Request) error {
+		req.SetBasicAuth(username, password)
+		return nil
+	}
 }
 
 func MustClient(client Client, err error) Client {
@@ -109,6 +120,7 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 // does not perform retries.
 type BasicClient struct {
 	url        string
+	beforeHook BeforeClientRequest
 	HTTPClient *http.Client
 }
 
@@ -124,7 +136,13 @@ func Dial(url string) (*BasicClient, error) {
 }
 
 func (b *BasicClient) do(req *RequestTemplate) (*http.Response, error) {
-	hr, err := b.HTTPClient.Do(req.Build(b.url))
+	hreq := req.Build(b.url)
+	if b.beforeHook != nil {
+		if err := b.beforeHook(hreq); err != nil {
+			return nil, err
+		}
+	}
+	hr, err := b.HTTPClient.Do(hreq)
 	if err != nil {
 		return nil, err
 	}
@@ -139,6 +157,11 @@ func (b *BasicClient) do(req *RequestTemplate) (*http.Response, error) {
 		return nil, Error(response.Status, response.Error)
 	}
 	return hr, nil
+}
+
+func (b *BasicClient) BeforeRequest(hook BeforeClientRequest) error {
+	b.beforeHook = hook
+	return nil
 }
 
 func (b *BasicClient) Do(req *RequestTemplate, resp interface{}) error {
