@@ -60,7 +60,7 @@ func TestServerCallsMethod(t *testing.T) {
 	assert.Equal(t, Params{"id": "hello"}, test.params)
 	assert.Equal(t, 10, test.id)
 	assert.Equal(t, 200, w.Code)
-	assert.Equal(t, `{"ID":20}`, w.Body.String())
+	assert.Equal(t, `{"s":200,"d":{"ID":20}}`, w.Body.String())
 }
 
 func TestPatternRegex(t *testing.T) {

@@ -132,12 +132,10 @@ func (b *BasicClient) do(req *RequestTemplate) (*http.Response, error) {
 		return nil, err
 	}
 	if hr.StatusCode < 200 || hr.StatusCode > 299 {
-		hr.Body.Close()
-		message := hr.Header.Get("X-Error-Message")
-		if message == "" {
-			message = hr.Status
-		}
-		return nil, Error(hr.StatusCode, message)
+		defer hr.Body.Close()
+		response := &intermediateProtocolResponse{}
+		json.NewDecoder(req.body).Decode(response)
+		return nil, Error(response.Status, response.Error)
 	}
 	return hr, nil
 }
@@ -177,7 +175,15 @@ type BasicClientStream struct {
 }
 
 func (b *BasicClientStream) Next(v interface{}) error {
-	return b.dec.Decode(v)
+	response := &intermediateProtocolResponse{}
+	err := b.dec.Decode(response)
+	if err != nil {
+		return err
+	}
+	if response.Status < 200 || response.Status > 299 {
+		return Error(response.Status, response.Error)
+	}
+	return json.Unmarshal(response.Data, v)
 }
 
 func (b *BasicClientStream) Close() error {

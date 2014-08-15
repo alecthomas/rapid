@@ -155,10 +155,16 @@ func indirect(t reflect.Type) reflect.Type {
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
-	if err != nil {
-		w.Header().Set("X-Error-Message", err.Error())
-	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	e := ""
+	if err != nil {
+		e = err.Error()
+	}
+	json.NewEncoder(w).Encode(&ProtocolResponse{
+		Status: status,
+		Error:  e,
+	})
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -282,13 +288,17 @@ func (s *Server) handleScalar(route *schema.Route, w http.ResponseWriter, r *htt
 		writeError(w, status, err)
 		return
 	}
-	body, err := json.Marshal(data)
+	response := &ProtocolResponse{
+		Status: status,
+		Data:   data,
+	}
+	body, err := json.Marshal(response)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
 	w.Write(body)
 }
@@ -339,12 +349,19 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w ht
 				if data == nil {
 					return
 				}
-				enc.Encode(data)
+				enc.Encode(&ProtocolResponse{
+					Status: http.StatusOK,
+					Data:   data,
+				})
 				fw.Flush()
 
 			case 1: // error
-				_, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
+				status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
 				s.log.Debugf("Closing HTTP connection, streaming handler returned error: %s", err)
+				enc.Encode(&ProtocolResponse{
+					Status: status,
+					Error:  err.Error(),
+				})
 				return
 
 			case 2: // CloseNotifier

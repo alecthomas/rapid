@@ -1,10 +1,27 @@
 package rapid
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 )
 
+// ProtocolResponse is the wire-format for a RAPID response.
+type ProtocolResponse struct {
+	Status int         `json:"s"`
+	Error  string      `json:"e,omitempty"`
+	Data   interface{} `json:"d,omitempty"`
+}
+
+// Used during decoding to unwrap the framing ProtocolResponse structure.
+type intermediateProtocolResponse struct {
+	Status int             `json:"s"`
+	Error  string          `json:"e,omitempty"`
+	Data   json.RawMessage `json:"d,omitempty"`
+}
+
+// Protocol contains various functions for assisting in translation between
+// HTTP and the RAPID Go API.
 type Protocol interface {
 	TranslateError(r *http.Request, status int, err error) (int, error)
 }
