@@ -7,9 +7,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
-	"time"
-
-	"github.com/cenkalti/backoff"
 
 	"github.com/alecthomas/rapid/schema"
 )
@@ -134,7 +131,11 @@ func (b *BasicClient) do(req *RequestTemplate) (*http.Response, error) {
 	if hr.StatusCode < 200 || hr.StatusCode > 299 {
 		defer hr.Body.Close()
 		response := &intermediateProtocolResponse{}
-		json.NewDecoder(req.body).Decode(response)
+		if err := json.NewDecoder(hr.Body).Decode(response); err != nil {
+			// Not a valid response structure, return HTTP error.
+			return nil, Error(hr.StatusCode, hr.Status)
+		}
+		// Use error in response structure.
 		return nil, Error(response.Status, response.Error)
 	}
 	return hr, nil
@@ -146,10 +147,20 @@ func (b *BasicClient) Do(req *RequestTemplate, resp interface{}) error {
 		return err
 	}
 	defer hr.Body.Close()
-	if resp != nil {
-		err = json.NewDecoder(hr.Body).Decode(resp)
+	intr := &intermediateProtocolResponse{}
+	err = json.NewDecoder(hr.Body).Decode(intr)
+	if err != nil {
+		return err
 	}
-	return err
+	// No response value to decode into, just return.
+	if resp == nil {
+		return nil
+	}
+	// NOTE: We will never have an error response structure here, because do()
+	// already handles error statuses.
+
+	// We have a response value - decode wrapped data item into it.
+	return json.Unmarshal(intr.Data, resp)
 }
 
 func (b *BasicClient) DoStreaming(req *RequestTemplate) (ClientStream, error) {
@@ -191,82 +202,82 @@ func (b *BasicClientStream) Close() error {
 	return nil
 }
 
-type RetryingClient struct {
-	client  Client
-	backoff backoff.BackOff
-	log     Logger
-}
+// type RetryingClient struct {
+// 	client  Client
+// 	backoff backoff.BackOff
+// 	log     Logger
+// }
 
-func NewRetryingClient(client Client, backoff backoff.BackOff, log Logger) (*RetryingClient, error) {
-	backoff.Reset()
-	return &RetryingClient{
-		client:  client,
-		backoff: backoff,
-		log:     log,
-	}, nil
-}
+// func NewRetryingClient(client Client, backoff backoff.BackOff, log Logger) (*RetryingClient, error) {
+// 	backoff.Reset()
+// 	return &RetryingClient{
+// 		client:  client,
+// 		backoff: backoff,
+// 		log:     log,
+// 	}, nil
+// }
 
-func (r *RetryingClient) Do(req *RequestTemplate, resp interface{}) error {
-	for {
-		r.log.Debugf("Issing %s", req)
-		err := r.client.Do(req, resp)
-		if err == nil {
-			return nil
-		}
+// func (r *RetryingClient) Do(req *RequestTemplate, resp interface{}) error {
+// 	for {
+// 		r.log.Debugf("Issing %s", req)
+// 		err := r.client.Do(req, resp)
+// 		if err == nil {
+// 			return nil
+// 		}
 
-		duration := r.backoff.NextBackOff()
-		r.log.Debugf("Request %s failed (%s), delaying for %s", req, err, duration)
-		if duration == backoff.Stop {
-			r.log.Debugf("Request %s exceeded retries, stopping", req)
-			return err
-		}
-		time.Sleep(duration)
-	}
-}
+// 		duration := r.backoff.NextBackOff()
+// 		r.log.Debugf("Request %s failed (%s), delaying for %s", req, err, duration)
+// 		if duration == backoff.Stop {
+// 			r.log.Debugf("Request %s exceeded retries, stopping", req)
+// 			return err
+// 		}
+// 		time.Sleep(duration)
+// 	}
+// }
 
-func (r *RetryingClient) DoStreaming(req *RequestTemplate) (ClientStream, error) {
-	for {
-		r.log.Debugf("Issing streaming request to %s", req)
-		stream, err := r.client.DoStreaming(req)
-		if err == nil {
-			return &RetryingClientStream{r.backoff, stream}, nil
-		}
+// func (r *RetryingClient) DoStreaming(req *RequestTemplate) (ClientStream, error) {
+// 	for {
+// 		r.log.Debugf("Issing streaming request to %s", req)
+// 		stream, err := r.client.DoStreaming(req)
+// 		if err == nil {
+// 			return &RetryingClientStream{r.backoff, stream}, nil
+// 		}
 
-		duration := r.backoff.NextBackOff()
-		r.log.Debugf("Streaming request %s failed (%s), delaying for %s", req, err, duration)
-		if duration == backoff.Stop {
-			r.log.Debugf("Streaming request %s exceeded retries, stopping", req)
-			return nil, err
-		}
-		time.Sleep(duration)
-	}
-}
+// 		duration := r.backoff.NextBackOff()
+// 		r.log.Debugf("Streaming request %s failed (%s), delaying for %s", req, err, duration)
+// 		if duration == backoff.Stop {
+// 			r.log.Debugf("Streaming request %s exceeded retries, stopping", req)
+// 			return nil, err
+// 		}
+// 		time.Sleep(duration)
+// 	}
+// }
 
-func (r *RetryingClient) Close() error {
-	return r.client.Close()
-}
+// func (r *RetryingClient) Close() error {
+// 	return r.client.Close()
+// }
 
-type RetryingClientStream struct {
-	backoff backoff.BackOff
-	stream  ClientStream
-}
+// type RetryingClientStream struct {
+// 	backoff backoff.BackOff
+// 	stream  ClientStream
+// }
 
-func (r *RetryingClientStream) Next(v interface{}) error {
-	for {
-		err := r.stream.Next(v)
-		if err == nil {
-			return nil
-		}
+// func (r *RetryingClientStream) Next(v interface{}) error {
+// 	for {
+// 		err := r.stream.Next(v)
+// 		if err == nil {
+// 			return nil
+// 		}
 
-		duration := r.backoff.NextBackOff()
-		if duration == backoff.Stop {
-			return err
-		}
-		time.Sleep(duration)
+// 		duration := r.backoff.NextBackOff()
+// 		if duration == backoff.Stop {
+// 			return err
+// 		}
+// 		time.Sleep(duration)
 
-	}
-}
+// 	}
+// }
 
-func (r *RetryingClientStream) Close() error {
-	return r.stream.Close()
-}
+// func (r *RetryingClientStream) Close() error {
+// 	return r.stream.Close()
+// }

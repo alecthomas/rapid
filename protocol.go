@@ -2,7 +2,6 @@ package rapid
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 )
 
@@ -29,15 +28,15 @@ type Protocol interface {
 type DefaultProtocol struct{}
 
 func (d *DefaultProtocol) TranslateError(r *http.Request, status int, err error) (int, error) {
-	if status == 0 {
-		if r.Method == "POST" {
-			status = http.StatusCreated
-		} else {
-			status = http.StatusOK
-		}
-	}
-
+	// No error, just return status immediately.
 	if err == nil {
+		if status == 0 {
+			if r.Method == "POST" {
+				status = http.StatusCreated
+			} else {
+				status = http.StatusOK
+			}
+		}
 		return status, nil
 	}
 
@@ -48,10 +47,9 @@ func (d *DefaultProtocol) TranslateError(r *http.Request, status int, err error)
 		if st.Status >= 200 && st.Status <= 299 {
 			err = nil
 		}
-	} else {
+	} else if status == 0 {
 		// If it's any other error type, set 500 and continue.
 		status = http.StatusInternalServerError
-		err = errors.New("internal server error")
 	}
 	return status, err
 }

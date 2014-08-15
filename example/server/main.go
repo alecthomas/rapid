@@ -23,7 +23,7 @@ func main() {
 	users := example.UserServiceDefinition()
 	// err := schema.SchemaToGoClient(users.Schema, "main", os.Stdout)
 	w, _ := os.Create("./example/client/client.go")
-	err := schema.SchemaToGoClient(users, "main", w)
+	err := schema.SchemaToGoClient(users, false, "main", w)
 	if err != nil {
 		panic(err.Error())
 	}

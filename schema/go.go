@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"text/template"
+	"unicode"
+	"unicode/utf8"
 )
 
 var (
@@ -19,24 +21,24 @@ import (
 	"{{$key}}"{{end}}
 )
 
-{{if .Schema.Description}}// {{.Schema.Name}}Client - {{.Schema.Description}}{{end}}
-type {{.Schema.Name}}Client struct {
+{{if .Schema.Description}}// {{.Schema.Name|visibility}}Client - {{.Schema.Description}}{{end}}
+type {{.Schema.Name|visibility}}Client struct {
 	c rapid.Client
 }
 
-{{if .Schema.Description}}// Dial{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API.{{end}}
-func Dial{{.Schema.Name}}Client(url string) (*{{.Schema.Name}}Client, error) {
+{{if .Schema.Description}}// {{"Dial"|visibility}}{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API.{{end}}
+func {{"Dial"|visibility}}{{.Schema.Name}}(url string) (*{{.Schema.Name|visibility}}Client, error) {
 	c, err := rapid.Dial(url)
 	if err != nil {
 		return nil, err
 	}
-	return &{{.Schema.Name}}Client{c}, nil
+	return &{{.Schema.Name|visibility}}Client{c}, nil
 }
 
 
-{{if .Schema.Description}}// New{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API using an existing rapid.Client.{{end}}
-func New{{.Schema.Name}}Client(client rapid.Client) *{{.Schema.Name}}Client {
-	return &{{.Schema.Name}}Client{client}
+{{if .Schema.Description}}// {{"New"|visibility}}{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API using an existing rapid.Client.{{end}}
+func {{"New"|visibility}}{{.Schema.Name}}Client(client rapid.Client) *{{.Schema.Name|visibility}}Client {
+	return &{{.Schema.Name|visibility}}Client{client}
 }
 
 {{range .Schema.Resources}}
@@ -44,26 +46,26 @@ func New{{.Schema.Name}}Client(client rapid.Client) *{{.Schema.Name}}Client {
 {{$response := .DefaultResponse}}
 {{if not .Hidden}}
 {{if $response.Streaming}}
-type {{.Name}}Stream struct {
+type {{.Name|visibility}}Stream struct {
 	stream rapid.ClientStream
 }
 
-func (s *{{.Name}}Stream) Next() ({{$response.Type|type}}, error) {
+func (s *{{.Name|visibility}}Stream) Next() ({{$response.Type|type}}, error) {
 	{{var "v" $response.Type}}
 	err := s.stream.Next({{ref "v" $response.Type}})
 	return v, err
 }
 
-func (s *{{.Name}}Stream) Close() error {
+func (s *{{.Name|visibility}}Stream) Close() error {
 	return s.stream.Close()
 }
 {{end}}
 {{if .Description}}// {{.Name}} - {{.Description}}{{end}}
-func (a *{{$.Schema.Name}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}{{end}}) ({{if $response.Streaming}}*{{.Name}}Stream, {{else}}{{if $response.Type}}{{$response.Type|type}}, {{end}}{{end}}error) {
+func (a *{{$.Schema.Name|visibility}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}{{end}}) ({{if $response.Streaming}}*{{.Name|visibility}}Stream, {{else}}{{if $response.Type}}{{$response.Type|type}}, {{end}}{{end}}error) {
 	{{if and (not $response.Streaming) $response.Type}}{{var "resp" $response.Type}}
 	{{end}}r := rapid.Request("{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}.Build()
 	{{if $response.Streaming}}stream, err := a.c.DoStreaming({{else}}err := a.c.Do({{end}}r, {{if not $response.Streaming}}{{ref "resp" $response.Type}},{{end}})
-	{{if $response.Streaming}}return &{{.Name}}Stream{stream}, err{{else}}{{if $response.Type}}return resp, err{{else}}return err{{end}}{{end}}
+	{{if $response.Streaming}}return &{{.Name|visibility}}Stream{stream}, err{{else}}{{if $response.Type}}return resp, err{{else}}return err{{end}}{{end}}
 }
 {{end}}
 {{end}}
@@ -244,9 +246,10 @@ type goClientContext struct {
 	Imports map[string]struct{}
 	Package string
 	Schema  *Schema
+	Private bool
 }
 
-func SchemaToGoClient(schema *Schema, pkg string, w io.Writer) error {
+func SchemaToGoClient(schema *Schema, private bool, pkg string, w io.Writer) error {
 	imports := map[string]struct{}{
 		"github.com/alecthomas/rapid": struct{}{},
 	}
@@ -260,6 +263,7 @@ func SchemaToGoClient(schema *Schema, pkg string, w io.Writer) error {
 		Imports: imports,
 		Package: filepath.Base(pkg),
 		Schema:  schema,
+		Private: private,
 	}
 	goFuncs := template.FuncMap{
 		"type":       func(t reflect.Type) string { return goTypeReference(pkg, t) },
@@ -270,6 +274,12 @@ func SchemaToGoClient(schema *Schema, pkg string, w io.Writer) error {
 		"ref":        goTypeRef,
 		"needsalloc": func(t reflect.Type) bool { return t != nil && (t.Kind() == reflect.Ptr) },
 		"isslice":    func(t reflect.Type) bool { return t != nil && t.Kind() == reflect.Slice },
+		"visibility": func(name string) string {
+			if private {
+				return lowerFirst(name)
+			}
+			return name
+		},
 	}
 	tmpl := template.Must(template.New("go").Funcs(goFuncs).Parse(goTemplate))
 	// return tmpl.Execute(w, ctx)
@@ -296,4 +306,12 @@ func SchemaToGoClient(schema *Schema, pkg string, w io.Writer) error {
 	}
 	gofmtin.Close()
 	return gofmt.Wait()
+}
+
+func lowerFirst(s string) string {
+	if s == "" {
+		return ""
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToLower(r)) + s[n:]
 }
