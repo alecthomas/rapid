@@ -102,7 +102,7 @@ func SchemaToRAML(url string, s *Schema, w io.Writer) error {
 		if resource.Description != "" {
 			rraml["description"] = resource.Description
 		}
-		y[resource.Path] = rraml
+		y[resource.SimplifyPath()] = rraml
 	}
 	b, err := yaml.Marshal(y)
 	if err != nil {
@@ -190,10 +190,13 @@ func resourceToRAML(url string, resource *Resource) rmap {
 		if !strings.HasPrefix(r.Path, resource.Path) {
 			panic(fmt.Sprintf("resource %s has route %s outside prefix", resource.Path, r.Path))
 		}
-		rpath := r.Path[len(resource.Path):]
+		rpath := simplifiedPath(r.Path[len(resource.Path):])
 		if rpath == "" {
 			route = out
 		} else {
+			if !strings.HasPrefix(rpath, "/") {
+				rpath = "/" + rpath
+			}
 			if tr, ok := out[rpath]; ok {
 				route = tr.(rmap)
 			} else {

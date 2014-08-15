@@ -41,6 +41,10 @@ type Resource struct {
 	Routes      Routes `json:"routes"`
 }
 
+func (r *Resource) SimplifyPath() string {
+	return simplifiedPath(r.Path)
+}
+
 func (r *Resource) Hidden() bool {
 	for _, route := range r.Routes {
 		if !route.Hidden {
@@ -139,11 +143,7 @@ func (r *Route) CompilePath() (*regexp.Regexp, []string) {
 }
 
 func (r *Route) SimplifyPath() string {
-	out := r.Path
-	for _, match := range pathTransform.FindAllStringSubmatch(r.Path, -1) {
-		out = strings.Replace(out, match[0], "{"+match[2]+"}", 1)
-	}
-	return out
+	return simplifiedPath(r.Path)
 }
 
 func (r *Route) InterpolatePath(args ...interface{}) string {
@@ -157,4 +157,11 @@ func InterpolatePath(path string, args ...interface{}) string {
 		out = strings.Replace(out, match[0], v, 1)
 	}
 	return out
+}
+
+func simplifiedPath(path string) string {
+	for _, match := range pathTransform.FindAllStringSubmatch(path, -1) {
+		path = strings.Replace(path, match[0], "{"+match[2]+"}", 1)
+	}
+	return path
 }
