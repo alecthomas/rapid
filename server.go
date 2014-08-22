@@ -35,7 +35,7 @@ func (l *loggerSink) Infof(fmt string, args ...interface{})    {}
 func (l *loggerSink) Warningf(fmt string, args ...interface{}) {}
 func (l *loggerSink) Errorf(fmt string, args ...interface{})   {}
 
-type CloseNotifierChannel chan bool
+type CloseNotifierChannel <-chan bool
 
 type chunkedResponseWriter struct {
 	w  http.ResponseWriter
@@ -165,7 +165,7 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	if err != nil {
 		e = err.Error()
 	}
-	json.NewEncoder(w).Encode(&ProtocolResponse{
+	_ = json.NewEncoder(w).Encode(&ProtocolResponse{
 		Status: status,
 		Error:  e,
 	})
@@ -243,12 +243,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	i.Map(r)
 	i.Map(parts)
 
-	var closeNotifier CloseNotifierChannel
-	defaultResponse := match.route.DefaultResponse()
-	if defaultResponse.Streaming {
-		closeNotifier = make(CloseNotifierChannel)
-		i.Map(closeNotifier)
+	cn, ok := w.(http.CloseNotifier)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support close notifications"))
+		return
 	}
+	closeNotifier := (CloseNotifierChannel)(cn.CloseNotify())
+	i.Map(closeNotifier)
+
+	defaultResponse := match.route.DefaultResponse()
 	result, err := i.Invoke(match.method.Interface())
 	if err != nil {
 		panic(err.Error())
@@ -274,11 +277,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleStream(match.route, closeNotifier, w, r, result[0], result[1])
 	} else {
 		s.log.Debugf("%s %s -> %v", r.Method, r.URL, result[1].Interface())
-		s.handleScalar(match.route, w, r, result[0], result[1])
+		s.handleScalar(match.route, closeNotifier, w, r, result[0], result[1])
 	}
 }
 
-func (s *Server) handleScalar(route *schema.Route, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerr reflect.Value) {
+func (s *Server) handleScalar(route *schema.Route, closeNotifier CloseNotifierChannel, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerr reflect.Value) {
 	var data interface{}
 	var err error
 	switch rdata.Kind() {
@@ -322,19 +325,13 @@ func (s *Server) handleScalar(route *schema.Route, w http.ResponseWriter, r *htt
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
-	w.Write(body)
+	_, _ = w.Write(body)
 }
 
-func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
+func (s *Server) handleStream(route *schema.Route, closeNotifier CloseNotifierChannel, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
 	fw, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support flushing"))
-		return
-	}
-
-	cn, ok := w.(http.CloseNotifier)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support close notifications"))
 		return
 	}
 
@@ -361,8 +358,7 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w ht
 	enc := json.NewEncoder(cw)
 
 	rc := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: rdata}
-	nc := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(cn.CloseNotify())}
-	cases = []reflect.SelectCase{rc, ec, nc}
+	cases = []reflect.SelectCase{rc, ec}
 	for {
 		if chosen, recv, ok := reflect.Select(cases); ok {
 			switch chosen {
@@ -371,7 +367,7 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w ht
 				if data == nil {
 					return
 				}
-				enc.Encode(&ProtocolResponse{
+				_ = enc.Encode(&ProtocolResponse{
 					Status: http.StatusOK,
 					Data:   data,
 				})
@@ -380,15 +376,10 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier chan bool, w ht
 			case 1: // error
 				status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
 				s.log.Debugf("Closing HTTP connection, streaming handler returned error: %s", err)
-				enc.Encode(&ProtocolResponse{
+				_ = enc.Encode(&ProtocolResponse{
 					Status: status,
 					Error:  err.Error(),
 				})
-				return
-
-			case 2: // CloseNotifier
-				s.log.Debugf("HTTP connection closed")
-				closeNotifier <- true
 				return
 			}
 		}
