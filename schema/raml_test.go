@@ -50,7 +50,7 @@ type TestRAMLNestedStruct struct {
 }
 
 func TestMakeExample(t *testing.T) {
-	raml := makeRAMLExample(reflect.TypeOf(TestRAMLNestedStruct{}))
+	raml := makeRAMLExample(reflect.TypeOf(TestRAMLNestedStruct{}), true)
 	assert.Equal(t, `{
   "PointerType": {
     "ID": 0

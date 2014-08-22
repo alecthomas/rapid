@@ -17,6 +17,10 @@ import (
 	structschema "github.com/gorilla/schema"
 )
 
+type Validator interface {
+	Validate() error
+}
+
 type Logger interface {
 	Debugf(fmt string, args ...interface{})
 	Infof(fmt string, args ...interface{})
@@ -192,6 +196,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
+		if v, ok := path.(Validator); ok {
+			if err := v.Validate(); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+		}
 		i.Map(path)
 	}
 
@@ -203,6 +213,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
+		if v, ok := query.(Validator); ok {
+			if err := v.Validate(); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+		}
 		i.Map(query)
 	}
 
@@ -213,6 +229,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
+		}
+		if v, ok := req.(Validator); ok {
+			if err := v.Validate(); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
 		}
 		i.Map(req)
 	}
