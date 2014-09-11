@@ -7,16 +7,16 @@ import (
 
 // ProtocolResponse is the wire-format for a RAPID response.
 type ProtocolResponse struct {
-	Status int         `json:"s"`
-	Error  string      `json:"e,omitempty"`
-	Data   interface{} `json:"d,omitempty"`
+	Status int         `json:"s" msgpack:"s"`
+	Error  string      `json:"e,omitempty" msgpack:"e"`
+	Data   interface{} `json:"d,omitempty" msgpack:"d"`
 }
 
 // Used during decoding to unwrap the framing ProtocolResponse structure.
 type intermediateProtocolResponse struct {
-	Status int             `json:"s"`
-	Error  string          `json:"e,omitempty"`
-	Data   json.RawMessage `json:"d,omitempty"`
+	Status int             `json:"s" msgpack:"s"`
+	Error  string          `json:"e,omitempty" msgpack:"e"`
+	Data   json.RawMessage `json:"d,omitempty" msgpack:"d"`
 }
 
 // Protocol contains various functions for assisting in translation between

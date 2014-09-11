@@ -18,6 +18,7 @@ type Client interface {
 	Do(req *RequestTemplate, resp interface{}) error
 	DoStreaming(req *RequestTemplate) (ClientStream, error)
 	Close() error
+	HTTPClient() *http.Client
 }
 
 type ClientStream interface {
@@ -121,7 +122,7 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 type BasicClient struct {
 	url        string
 	beforeHook BeforeClientRequest
-	HTTPClient *http.Client
+	httpClient *http.Client
 }
 
 // Dial creates a new RAPID client with url as its endpoint, using the given protocol.
@@ -131,7 +132,7 @@ func Dial(url string) (*BasicClient, error) {
 	}
 	return &BasicClient{
 		url:        url,
-		HTTPClient: &http.Client{},
+		httpClient: &http.Client{},
 	}, nil
 }
 
@@ -142,7 +143,7 @@ func (b *BasicClient) do(req *RequestTemplate) (*http.Response, error) {
 			return nil, err
 		}
 	}
-	hr, err := b.HTTPClient.Do(hreq)
+	hr, err := b.httpClient.Do(hreq)
 	if err != nil {
 		return nil, err
 	}
@@ -194,13 +195,12 @@ func (b *BasicClient) DoStreaming(req *RequestTemplate) (ClientStream, error) {
 	return &BasicClientStream{hr: hr, dec: json.NewDecoder(httputil.NewChunkedReader(hr.Body))}, nil
 }
 
-func (b *BasicClient) Close() error {
-	return nil
+func (b *BasicClient) HTTPClient() *http.Client {
+	return b.httpClient
 }
 
-type Packet struct {
-	Error error
-	Data  []byte
+func (b *BasicClient) Close() error {
+	return nil
 }
 
 type BasicClientStream struct {

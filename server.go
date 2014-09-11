@@ -11,11 +11,35 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
+	"time"
 
-	"github.com/alecthomas/rapid/schema"
 	"github.com/codegangsta/inject"
 	structschema "github.com/gorilla/schema"
+
+	"github.com/alecthomas/rapid/schema"
 )
+
+var schemadecoder *structschema.Decoder
+
+func init() {
+	schemadecoder = structschema.NewDecoder()
+	schemadecoder.RegisterConverter(time.Duration(0), convertDuration)
+	schemadecoder.RegisterConverter(time.Time{}, convertTime)
+}
+
+func convertDuration(value string) reflect.Value {
+	if d, err := time.ParseDuration(value); err == nil {
+		return reflect.ValueOf(d)
+	}
+	return reflect.Value{}
+}
+
+func convertTime(value string) reflect.Value {
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return reflect.ValueOf(t)
+	}
+	return reflect.Value{}
+}
 
 type Validator interface {
 	Validate() error
@@ -112,6 +136,7 @@ type Server struct {
 	protocol Protocol
 	log      Logger
 	Injector inject.Injector
+	handler  interface{}
 }
 
 func NewServer(schema *schema.Schema, handler interface{}) (*Server, error) {
@@ -138,6 +163,7 @@ func NewServer(schema *schema.Schema, handler interface{}) (*Server, error) {
 		protocol: &DefaultProtocol{},
 		log:      &loggerSink{},
 		Injector: inject.New(),
+		handler:  handler,
 	}
 	return s, nil
 }
@@ -149,6 +175,14 @@ func (s *Server) SetProtocol(protocol Protocol) *Server {
 func (s *Server) SetLogger(log Logger) *Server {
 	s.log = log
 	return s
+}
+
+// Close underlying handler if it supports io.Closer.
+func (s *Server) Close() error {
+	if closer, ok := s.handler.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }
 
 func indirect(t reflect.Type) reflect.Type {
@@ -191,7 +225,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for key, value := range parts {
 			values.Add(key, value)
 		}
-		err := structschema.NewDecoder().Decode(path, values)
+		err := schemadecoder.Decode(path, values)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
@@ -208,7 +242,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Decode query parameters, if any.
 	if match.route.QueryType != nil {
 		query := reflect.New(indirect(match.route.QueryType)).Interface()
-		err := structschema.NewDecoder().Decode(query, r.URL.Query())
+		err := schemadecoder.Decode(query, r.URL.Query())
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return

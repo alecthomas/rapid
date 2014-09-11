@@ -23,7 +23,7 @@ import (
 
 {{if .Schema.Description}}// {{.Schema.Name|visibility}}Client - {{.Schema.Description}}{{end}}
 type {{.Schema.Name|visibility}}Client struct {
-	c rapid.Client
+	C rapid.Client
 }
 
 {{if .Schema.Description}}// {{"Dial"|visibility}}{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API.{{end}}
@@ -64,7 +64,7 @@ func (s *{{.Name|visibility}}Stream) Close() error {
 func (a *{{$.Schema.Name|visibility}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}{{end}}) ({{if $response.Streaming}}*{{.Name|visibility}}Stream, {{else}}{{if $response.Type}}{{$response.Type|type}}, {{end}}{{end}}error) {
 	{{if and (not $response.Streaming) $response.Type}}{{var "resp" $response.Type}}
 	{{end}}r := rapid.Request("{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}.Build()
-	{{if $response.Streaming}}stream, err := a.c.DoStreaming({{else}}err := a.c.Do({{end}}r, {{if not $response.Streaming}}{{ref "resp" $response.Type}},{{end}})
+	{{if $response.Streaming}}stream, err := a.C.DoStreaming({{else}}err := a.C.Do({{end}}r, {{if not $response.Streaming}}{{ref "resp" $response.Type}},{{end}})
 	{{if $response.Streaming}}return &{{.Name|visibility}}Stream{stream}, err{{else}}{{if $response.Type}}return resp, err{{else}}return err{{end}}{{end}}
 }
 {{end}}
@@ -75,13 +75,15 @@ func (a *{{$.Schema.Name|visibility}}Client) {{.Name}}({{if .PathType}}{{.PathTy
 )
 
 func goTypeReference(pkg string, t reflect.Type) string {
-	switch t.Kind() {
-	case reflect.Struct:
+	// Named types.
+	if t.Name() != "" {
 		if t.PkgPath() == pkg {
 			return t.Name()
 		}
 		return fmt.Sprintf("%s", t)
+	}
 
+	switch t.Kind() {
 	case reflect.Ptr:
 		return "*" + goTypeReference(pkg, t.Elem())
 

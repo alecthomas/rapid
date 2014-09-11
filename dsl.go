@@ -73,6 +73,9 @@ seek:
 func (d *definition) Build() *schema.Schema {
 	for _, resource := range d.model.Resources {
 		for _, route := range resource.Routes {
+			if route.Method == "" {
+				panic(fmt.Sprintf("route %s has not specified a HTTP method", route.Name))
+			}
 			if route.Path == "" {
 				panic(fmt.Sprintf("route %s with empty path", route.Name))
 			}
@@ -207,8 +210,8 @@ func (r *route) Response(status int, typ interface{}) *route {
 	return r.Responses(Response(status, typ))
 }
 
-func (r *route) Responses(response ...*response) *route {
-	for _, resp := range response {
+func (r *route) Responses(responses ...*response) *route {
+	for _, resp := range responses {
 		r.model.Responses = append(r.model.Responses, resp.model)
 	}
 	return r

@@ -56,6 +56,9 @@ func encodeBaseType(v reflect.Value) string {
 
 	case reflect.String:
 		return v.String()
+
+	case reflect.Bool:
+		return strconv.FormatBool(v.Bool())
 	}
 	panic(fmt.Sprintf("unsupported type %v", v))
 }
