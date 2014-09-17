@@ -192,7 +192,8 @@ func indirect(t reflect.Type) reflect.Type {
 	return t
 }
 
-func writeError(w http.ResponseWriter, status int, err error) {
+// WriteError writes a HTTP error response with the body in the RAPID JSON protocol.
+func WriteError(w http.ResponseWriter, status int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	e := ""
@@ -211,7 +212,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Match URL and method.
 	match, parts := s.match(r)
 	if match == nil {
-		writeError(w, http.StatusNotFound, nil)
+		WriteError(w, http.StatusNotFound, nil)
 		return
 	}
 
@@ -227,12 +228,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		err := schemadecoder.Decode(path, values)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
+			WriteError(w, http.StatusBadRequest, err)
 			return
 		}
 		if v, ok := path.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				writeError(w, http.StatusBadRequest, err)
+				WriteError(w, http.StatusBadRequest, err)
 				return
 			}
 		}
@@ -244,12 +245,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		query := reflect.New(indirect(match.route.QueryType)).Interface()
 		err := schemadecoder.Decode(query, r.URL.Query())
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
+			WriteError(w, http.StatusBadRequest, err)
 			return
 		}
 		if v, ok := query.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				writeError(w, http.StatusBadRequest, err)
+				WriteError(w, http.StatusBadRequest, err)
 				return
 			}
 		}
@@ -261,12 +262,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req := reflect.New(indirect(match.route.RequestType)).Interface()
 		err := json.NewDecoder(r.Body).Decode(req)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
+			WriteError(w, http.StatusBadRequest, err)
 			return
 		}
 		if v, ok := req.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				writeError(w, http.StatusBadRequest, err)
+				WriteError(w, http.StatusBadRequest, err)
 				return
 			}
 		}
@@ -279,7 +280,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	cn, ok := w.(http.CloseNotifier)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support close notifications"))
+		WriteError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support close notifications"))
 		return
 	}
 	closeNotifier := (CloseNotifierChannel)(cn.CloseNotify())
@@ -344,7 +345,7 @@ func (s *Server) handleScalar(route *schema.Route, closeNotifier CloseNotifierCh
 	}
 	status, err := s.protocol.TranslateError(r, 0, err)
 	if err != nil {
-		writeError(w, status, err)
+		WriteError(w, status, err)
 		return
 	}
 	response := &ProtocolResponse{
@@ -353,7 +354,7 @@ func (s *Server) handleScalar(route *schema.Route, closeNotifier CloseNotifierCh
 	}
 	body, err := json.Marshal(response)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		WriteError(w, http.StatusInternalServerError, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -365,7 +366,7 @@ func (s *Server) handleScalar(route *schema.Route, closeNotifier CloseNotifierCh
 func (s *Server) handleStream(route *schema.Route, closeNotifier CloseNotifierChannel, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
 	fw, ok := w.(http.Flusher)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support flushing"))
+		WriteError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support flushing"))
 		return
 	}
 
@@ -378,7 +379,7 @@ func (s *Server) handleStream(route *schema.Route, closeNotifier CloseNotifierCh
 	cases := []reflect.SelectCase{dc, ec}
 	if _, recv, ok := reflect.Select(cases); ok {
 		status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
-		writeError(w, status, err)
+		WriteError(w, status, err)
 		return
 	}
 
