@@ -64,6 +64,7 @@ type Route struct {
 	Responses   []*Response  `json:"responses"`
 	QueryType   reflect.Type `json:"query_type"`
 	PathType    reflect.Type `json:"path_type"`
+	SecuredBy   []string     `json:"secured_by"`
 
 	Hidden bool `json:"-"` // A hint that this should be hidden from public API descriptions.
 }

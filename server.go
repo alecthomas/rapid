@@ -277,14 +277,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	i.MapTo(w, (*http.ResponseWriter)(nil))
 	i.Map(r)
 	i.Map(parts)
+	i.Map(match.route)
 
-	cn, ok := w.(http.CloseNotifier)
-	if !ok {
-		WriteError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support close notifications"))
-		return
+	var closeNotifier CloseNotifierChannel
+	if cn, ok := w.(http.CloseNotifier); ok {
+		// WriteError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support close notifications"))
+		// return
+		closeNotifier = (CloseNotifierChannel)(cn.CloseNotify())
+		i.Map(closeNotifier)
 	}
-	closeNotifier := (CloseNotifierChannel)(cn.CloseNotify())
-	i.Map(closeNotifier)
 
 	defaultResponse := match.route.DefaultResponse()
 	result, err := i.Invoke(match.method.Interface())

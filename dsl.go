@@ -217,6 +217,13 @@ func (r *route) Responses(responses ...*response) *route {
 	return r
 }
 
+// SecuredBy lets developers list the security schemes applied to a route.
+// These should follow the naming conventions of RAML securitySchemes.
+func (r *route) SecuredBy(names ...string) *route {
+	r.model.SecuredBy = append(r.model.SecuredBy, names...)
+	return r
+}
+
 type response struct {
 	model *schema.Response
 }
