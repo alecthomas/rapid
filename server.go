@@ -130,13 +130,16 @@ type routeMatch struct {
 	method  reflect.Value
 }
 
+type BeforeHandlerFunc interface{}
+
 type Server struct {
-	schema   *schema.Schema
-	matches  []*routeMatch
-	protocol Protocol
-	log      Logger
-	Injector inject.Injector
-	handler  interface{}
+	schema        *schema.Schema
+	matches       []*routeMatch
+	protocol      Protocol
+	log           Logger
+	Injector      inject.Injector
+	handler       interface{}
+	beforeHandler BeforeHandlerFunc
 }
 
 func NewServer(schema *schema.Schema, handler interface{}) (*Server, error) {
@@ -174,6 +177,11 @@ func (s *Server) SetProtocol(protocol Protocol) *Server {
 }
 func (s *Server) SetLogger(log Logger) *Server {
 	s.log = log
+	return s
+}
+
+func (s *Server) BeforeHandler(before BeforeHandlerFunc) *Server {
+	s.beforeHandler = before
 	return s
 }
 
@@ -274,6 +282,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		i.Map(req)
 	}
 
+	i.MapTo(i, (*inject.Injector)(nil))
 	i.MapTo(w, (*http.ResponseWriter)(nil))
 	i.Map(r)
 	i.Map(parts)
@@ -285,6 +294,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// return
 		closeNotifier = (CloseNotifierChannel)(cn.CloseNotify())
 		i.Map(closeNotifier)
+	}
+
+	if s.beforeHandler != nil {
+		results, err := i.Invoke(s.beforeHandler)
+		if err != nil {
+			panic(err.Error())
+		}
+		rerr := results[0]
+		if !rerr.IsNil() {
+			err = rerr.Interface().(error)
+			if err != nil {
+				status, err := s.protocol.TranslateError(r, 0, err)
+				WriteError(w, status, err)
+				return
+			}
+		}
+
 	}
 
 	defaultResponse := match.route.DefaultResponse()
