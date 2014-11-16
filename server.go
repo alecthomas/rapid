@@ -2,7 +2,6 @@ package rapid
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -305,15 +304,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !rerr.IsNil() {
 			err = rerr.Interface().(error)
 			if err != nil {
-				status, err := s.protocol.TranslateError(r, 0, err)
-				WriteError(w, status, err)
+				s.protocol.WriteResponse(r, w, 500, err, nil)
 				return
 			}
 		}
 
 	}
 
-	defaultResponse := match.route.DefaultResponse()
 	result, err := i.Invoke(match.method.Interface())
 	if err != nil {
 		panic(err.Error())
@@ -323,9 +320,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case 1: // Single value is always an error, so we just synthesize (nil, error).
-		if defaultResponse.Streaming {
-			panic("streaming responses must return (chan <type>, chan error)")
-		}
 		result = []reflect.Value{reflect.ValueOf((*struct{})(nil)), result[0]}
 
 	case 2: // (response, error)
@@ -334,13 +328,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		panic(fmt.Errorf("handler method %s.%s should return (<response>, <error>)", match.method.Type(), match.route.Name))
 	}
-	if defaultResponse.Streaming {
-		s.log.Debugf("%s %s -> streaming response", r.Method, r.URL)
-		s.handleStream(match.route, closeNotifier, w, r, result[0], result[1])
-	} else {
-		s.log.Debugf("%s %s -> %v", r.Method, r.URL, result[1].Interface())
-		s.handleScalar(match.route, closeNotifier, w, r, result[0], result[1])
-	}
+	s.log.Debugf("%s %s -> %v", r.Method, r.URL, result[1].Interface())
+	s.handleScalar(match.route, closeNotifier, w, r, result[0], result[1])
 }
 
 func (s *Server) handleScalar(route *schema.Route, closeNotifier CloseNotifierChannel, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerr reflect.Value) {
@@ -370,82 +359,7 @@ func (s *Server) handleScalar(route *schema.Route, closeNotifier CloseNotifierCh
 	if !rerr.IsNil() {
 		err = rerr.Interface().(error)
 	}
-	status, err := s.protocol.TranslateError(r, 0, err)
-	if err != nil {
-		WriteError(w, status, err)
-		return
-	}
-	response := &ProtocolResponse{
-		Status: status,
-		Data:   data,
-	}
-	body, err := json.Marshal(response)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-	w.WriteHeader(status)
-	_, _ = w.Write(body)
-}
-
-func (s *Server) handleStream(route *schema.Route, closeNotifier CloseNotifierChannel, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerrs reflect.Value) {
-	fw, ok := w.(http.Flusher)
-	if !ok {
-		WriteError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support flushing"))
-		return
-	}
-
-	cw := newChunkedResponseWriter(w)
-
-	// If we have an immediate error, return this directly in the HTTP
-	// response rather than streaming it.
-	ec := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: rerrs}
-	dc := reflect.SelectCase{Dir: reflect.SelectDefault}
-	cases := []reflect.SelectCase{dc, ec}
-	if _, recv, ok := reflect.Select(cases); ok {
-		status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
-		WriteError(w, status, err)
-		return
-	}
-
-	status, _ := s.protocol.TranslateError(r, 0, nil)
-	// No error? Flush the status and start the main select loop.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	fw.Flush()
-	defer cw.Close()
-
-	enc := json.NewEncoder(cw)
-
-	rc := reflect.SelectCase{Dir: reflect.SelectRecv, Chan: rdata}
-	cases = []reflect.SelectCase{rc, ec}
-	for {
-		if chosen, recv, ok := reflect.Select(cases); ok {
-			switch chosen {
-			case 0: // value
-				data := recv.Interface()
-				if data == nil {
-					return
-				}
-				_ = enc.Encode(&ProtocolResponse{
-					Status: http.StatusOK,
-					Data:   data,
-				})
-				fw.Flush()
-
-			case 1: // error
-				status, err := s.protocol.TranslateError(r, 0, recv.Interface().(error))
-				s.log.Debugf("Closing HTTP connection, streaming handler returned error: %s", err)
-				_ = enc.Encode(&ProtocolResponse{
-					Status: status,
-					Error:  err.Error(),
-				})
-				return
-			}
-		}
-	}
+	s.protocol.WriteResponse(r, w, 0, err, data)
 }
 
 func (s *Server) match(r *http.Request) (*routeMatch, Params) {
