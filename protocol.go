@@ -27,7 +27,27 @@ type Protocol interface {
 
 type DefaultProtocol struct{}
 
-func (d *DefaultProtocol) translateError(r *http.Request, status int, err error) (int, error) {
+// Translate error and write response.
+func (d *DefaultProtocol) WriteResponse(r *http.Request, w http.ResponseWriter, status int, err error, data interface{}) {
+	status, err = TranslateError(r, status, err)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	var response *ProtocolResponse
+	if err != nil {
+		response = &ProtocolResponse{
+			Status: status,
+			Error:  err.Error(),
+		}
+	} else {
+		response = &ProtocolResponse{
+			Status: status,
+			Data:   data,
+		}
+	}
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+func TranslateError(r *http.Request, status int, err error) (int, error) {
 	// No error, just return status immediately.
 	if err == nil {
 		if status == 0 {
@@ -52,23 +72,4 @@ func (d *DefaultProtocol) translateError(r *http.Request, status int, err error)
 		status = http.StatusInternalServerError
 	}
 	return status, err
-}
-
-func (d *DefaultProtocol) WriteResponse(r *http.Request, w http.ResponseWriter, status int, err error, data interface{}) {
-	status, err = d.translateError(r, status, err)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	var response *ProtocolResponse
-	if err != nil {
-		response = &ProtocolResponse{
-			Status: status,
-			Error:  err.Error(),
-		}
-	} else {
-		response = &ProtocolResponse{
-			Status: status,
-			Data:   data,
-		}
-	}
-	_ = json.NewEncoder(w).Encode(response)
 }
