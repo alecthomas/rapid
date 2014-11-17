@@ -22,36 +22,60 @@ type intermediateProtocolResponse struct {
 // Protocol contains various functions for assisting in translation between
 // HTTP and the RAPID Go API.
 type Protocol interface {
+	ContentType() string
+	ReadRequest(r *http.Request, v interface{}) error
 	WriteResponse(r *http.Request, w http.ResponseWriter, status int, err error, data interface{})
+	WriteRequest(v interface{}) (body []byte, err error)
+	ReadResponse(hr *http.Response, v interface{}) error
 }
 
 type DefaultProtocol struct{}
 
-// Translate error and write response.
+func (d *DefaultProtocol) ContentType() string {
+	return "application/json"
+}
+
+func (d *DefaultProtocol) ReadRequest(r *http.Request, v interface{}) error {
+	// TODO: Parse Accept header, etc.
+	return json.NewDecoder(r.Body).Decode(v)
+}
+
 func (d *DefaultProtocol) WriteResponse(r *http.Request, w http.ResponseWriter, status int, err error, data interface{}) {
 	status, err = TranslateError(r, status, err)
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", d.ContentType())
 	w.WriteHeader(status)
-	var response *ProtocolResponse
 	if err != nil {
-		response = &ProtocolResponse{
-			Status: status,
-			Error:  err.Error(),
-		}
-	} else {
-		response = &ProtocolResponse{
-			Status: status,
-			Data:   data,
-		}
+		data = &ProtocolResponse{Status: status, Error: err.Error()}
 	}
-	_ = json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+func (d *DefaultProtocol) WriteRequest(v interface{}) ([]byte, error) {
+	body, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return body, err
+}
+
+func (d *DefaultProtocol) ReadResponse(r *http.Response, v interface{}) error {
+	if r.StatusCode < 200 || r.StatusCode >= 300 {
+		response := &intermediateProtocolResponse{}
+		if err := json.NewDecoder(r.Body).Decode(response); err != nil {
+			// Not a valid response structure, return error.
+			return Error(http.StatusInternalServerError, err.Error())
+		}
+		// Use error in response structure.
+		return Error(response.Status, response.Error)
+	}
+	return json.NewDecoder(r.Body).Decode(v)
 }
 
 func TranslateError(r *http.Request, status int, err error) (int, error) {
 	// No error, just return status immediately.
 	if err == nil {
 		if status == 0 {
-			if r.Method == "POST" {
+			if r != nil && r.Method == "POST" {
 				status = http.StatusCreated
 			} else {
 				status = http.StatusOK

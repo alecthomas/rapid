@@ -1,7 +1,6 @@
 package rapid
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -129,6 +128,7 @@ type routeMatch struct {
 	method  reflect.Value
 }
 
+// A function with the signature f(...) error. Arguments can be injected.
 type BeforeHandlerFunc interface{}
 
 type Server struct {
@@ -199,27 +199,13 @@ func indirect(t reflect.Type) reflect.Type {
 	return t
 }
 
-// WriteError writes a HTTP error response with the body in the RAPID JSON protocol.
-func WriteError(w http.ResponseWriter, status int, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	e := ""
-	if err != nil {
-		e = err.Error()
-	}
-	_ = json.NewEncoder(w).Encode(&ProtocolResponse{
-		Status: status,
-		Error:  e,
-	})
-}
-
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.log.Debugf("%s %s", r.Method, r.URL)
 
 	// Match URL and method.
 	match, parts := s.match(r)
 	if match == nil {
-		WriteError(w, http.StatusNotFound, nil)
+		s.protocol.WriteResponse(r, w, http.StatusNotFound, nil, nil)
 		return
 	}
 
@@ -235,12 +221,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		err := schemadecoder.Decode(path, values)
 		if err != nil {
-			WriteError(w, http.StatusBadRequest, err)
+			s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
 			return
 		}
 		if v, ok := path.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				WriteError(w, http.StatusBadRequest, err)
+				s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
 				return
 			}
 		}
@@ -252,12 +238,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		query := reflect.New(indirect(match.route.QueryType)).Interface()
 		err := schemadecoder.Decode(query, r.URL.Query())
 		if err != nil {
-			WriteError(w, http.StatusBadRequest, err)
+			s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
 			return
 		}
 		if v, ok := query.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				WriteError(w, http.StatusBadRequest, err)
+				s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
 				return
 			}
 		}
@@ -267,14 +253,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Decode request body, if any.
 	if match.route.RequestType != nil {
 		req := reflect.New(indirect(match.route.RequestType)).Interface()
-		err := json.NewDecoder(r.Body).Decode(req)
+		err := s.protocol.ReadRequest(r, req)
 		if err != nil {
-			WriteError(w, http.StatusBadRequest, err)
+			s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
 			return
 		}
 		if v, ok := req.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				WriteError(w, http.StatusBadRequest, err)
+				s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
 				return
 			}
 		}
@@ -308,7 +294,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-
 	}
 
 	result, err := i.Invoke(match.method.Interface())

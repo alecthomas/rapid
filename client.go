@@ -2,10 +2,8 @@ package rapid
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httputil"
 	"strings"
 
 	"github.com/alecthomas/rapid/schema"
@@ -16,7 +14,6 @@ type BeforeClientRequest func(*http.Request) error
 type Client interface {
 	BeforeRequest(hook BeforeClientRequest) error
 	Do(req *RequestTemplate, resp interface{}) error
-	DoStreaming(req *RequestTemplate) (ClientStream, error)
 	Close() error
 	HTTPClient() *http.Client
 }
@@ -43,19 +40,18 @@ func MustClient(client Client, err error) Client {
 
 // A RequestTemplate can be used to build a new http.Request from scratch.
 type RequestTemplate struct {
-	method string
-	path   string
-	body   *bytes.Buffer
+	protocol Protocol
+	method   string
+	path     string
+	body     []byte
 }
 
 func (r *RequestTemplate) Build(url string) *http.Request {
-	h, err := http.NewRequest(r.method, url+r.path, r.body)
+	h, err := http.NewRequest(r.method, url+r.path, bytes.NewBuffer(r.body))
 	if err != nil {
 		panic(err)
 	}
-	if r.body != nil && r.body.Len() > 0 {
-		h.Header.Set("Content-Type", "application/json")
-	}
+	h.Header.Set("Content-Type", r.protocol.ContentType())
 	return h
 }
 
@@ -64,21 +60,26 @@ func (r *RequestTemplate) String() string {
 }
 
 type RequestBuilder struct {
-	method string
-	path   string
-	query  interface{}
-	body   interface{}
+	protocol Protocol
+	method   string
+	path     string
+	query    interface{}
+	body     interface{}
 }
 
 // Request makes a new RequestBuilder. A RequestBuilder is a type with useful
 // constructs for building rapid-conformant HTTP requests.
 // Parameters in the form {name} are interpolated into the path from params.
-// eg. Request("GET", "/{id}", 10)
-func Request(method, path string, params ...interface{}) *RequestBuilder {
+// eg. Request(protocol, "GET", "/{id}", 10)
+func Request(protocol Protocol, method, path string, params ...interface{}) *RequestBuilder {
+	if protocol == nil {
+		protocol = &DefaultProtocol{}
+	}
 	path = schema.InterpolatePath(path, params...)
 	return &RequestBuilder{
-		method: method,
-		path:   path,
+		protocol: protocol,
+		method:   method,
+		path:     path,
 	}
 }
 
@@ -101,63 +102,37 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
-
-	// Encode request body, if any.
-	body := bytes.NewBuffer(nil)
-	if r.body != nil {
-		if err := json.NewEncoder(body).Encode(r.body); err != nil {
-			panic(err)
-		}
+	body, err := r.protocol.WriteRequest(r.body)
+	if err != nil {
+		panic(err)
 	}
-
 	return &RequestTemplate{
-		method: r.method,
-		path:   path,
-		body:   body,
+		protocol: r.protocol,
+		method:   r.method,
+		path:     path,
+		body:     body,
 	}
 }
 
 // A BasicClient is a simple client that issues one request per API call. It
 // does not perform retries.
 type BasicClient struct {
+	protocol   Protocol
 	url        string
 	beforeHook BeforeClientRequest
 	httpClient *http.Client
 }
 
 // Dial creates a new RAPID client with url as its endpoint, using the given protocol.
-func Dial(url string) (*BasicClient, error) {
+func Dial(protocol Protocol, url string) (*BasicClient, error) {
 	if !strings.HasSuffix(url, "/") {
 		url += "/"
 	}
 	return &BasicClient{
+		protocol:   protocol,
 		url:        url,
 		httpClient: &http.Client{},
 	}, nil
-}
-
-func (b *BasicClient) do(req *RequestTemplate) (*http.Response, error) {
-	hreq := req.Build(b.url)
-	if b.beforeHook != nil {
-		if err := b.beforeHook(hreq); err != nil {
-			return nil, err
-		}
-	}
-	hr, err := b.httpClient.Do(hreq)
-	if err != nil {
-		return nil, err
-	}
-	if hr.StatusCode < 200 || hr.StatusCode > 299 {
-		defer hr.Body.Close()
-		response := &intermediateProtocolResponse{}
-		if err := json.NewDecoder(hr.Body).Decode(response); err != nil {
-			// Not a valid response structure, return HTTP error.
-			return nil, Error(hr.StatusCode, hr.Status)
-		}
-		// Use error in response structure.
-		return nil, Error(response.Status, response.Error)
-	}
-	return hr, nil
 }
 
 func (b *BasicClient) BeforeRequest(hook BeforeClientRequest) error {
@@ -166,33 +141,18 @@ func (b *BasicClient) BeforeRequest(hook BeforeClientRequest) error {
 }
 
 func (b *BasicClient) Do(req *RequestTemplate, resp interface{}) error {
-	hr, err := b.do(req)
+	hr := req.Build(b.url)
+	if b.beforeHook != nil {
+		if err := b.beforeHook(hr); err != nil {
+			return err
+		}
+	}
+	response, err := b.httpClient.Do(hr)
 	if err != nil {
 		return err
 	}
-	defer hr.Body.Close()
-	intr := &intermediateProtocolResponse{}
-	err = json.NewDecoder(hr.Body).Decode(intr)
-	if err != nil {
-		return err
-	}
-	// No response value to decode into, just return.
-	if resp == nil {
-		return nil
-	}
-	// NOTE: We will never have an error response structure here, because do()
-	// already handles error statuses.
-
-	// We have a response value - decode wrapped data item into it.
-	return json.Unmarshal(intr.Data, resp)
-}
-
-func (b *BasicClient) DoStreaming(req *RequestTemplate) (ClientStream, error) {
-	hr, err := b.do(req)
-	if err != nil {
-		return nil, err
-	}
-	return &BasicClientStream{hr: hr, dec: json.NewDecoder(httputil.NewChunkedReader(hr.Body))}, nil
+	defer response.Body.Close()
+	return b.protocol.ReadResponse(response, resp)
 }
 
 func (b *BasicClient) HTTPClient() *http.Client {
@@ -200,28 +160,6 @@ func (b *BasicClient) HTTPClient() *http.Client {
 }
 
 func (b *BasicClient) Close() error {
-	return nil
-}
-
-type BasicClientStream struct {
-	hr  *http.Response
-	dec *json.Decoder
-}
-
-func (b *BasicClientStream) Next(v interface{}) error {
-	response := &intermediateProtocolResponse{}
-	err := b.dec.Decode(response)
-	if err != nil {
-		return err
-	}
-	if response.Status < 200 || response.Status > 299 {
-		return Error(response.Status, response.Error)
-	}
-	return json.Unmarshal(response.Data, v)
-}
-
-func (b *BasicClientStream) Close() error {
-	b.hr.Body.Close()
 	return nil
 }
 

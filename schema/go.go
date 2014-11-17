@@ -24,21 +24,22 @@ import (
 {{if .Schema.Description}}// {{.Schema.Name|visibility}}Client - {{.Schema.Description}}{{end}}
 type {{.Schema.Name|visibility}}Client struct {
 	C rapid.Client
+	Protocol rapid.Protocol
 }
 
 {{if .Schema.Description}}// {{"Dial"|visibility}}{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API.{{end}}
-func {{"Dial"|visibility}}{{.Schema.Name}}(url string) (*{{.Schema.Name|visibility}}Client, error) {
-	c, err := rapid.Dial(url)
+func {{"Dial"|visibility}}{{.Schema.Name}}(protocol rapid.Protocol, url string) (*{{.Schema.Name|visibility}}Client, error) {
+	c, err := rapid.Dial(protocol, url)
 	if err != nil {
 		return nil, err
 	}
-	return &{{.Schema.Name|visibility}}Client{c}, nil
+	return &{{.Schema.Name|visibility}}Client{C: c, Protocol: protocol}, nil
 }
 
 
 {{if .Schema.Description}}// {{"New"|visibility}}{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API using an existing rapid.Client.{{end}}
-func {{"New"|visibility}}{{.Schema.Name}}Client(client rapid.Client) *{{.Schema.Name|visibility}}Client {
-	return &{{.Schema.Name|visibility}}Client{client}
+func {{"New"|visibility}}{{.Schema.Name}}Client(protocol rapid.Protocol, client rapid.Client) *{{.Schema.Name|visibility}}Client {
+	return &{{.Schema.Name|visibility}}Client{C: client, Protocol: protocol}
 }
 
 {{range .Schema.Resources}}
@@ -63,7 +64,7 @@ func (s *{{.Name|visibility}}Stream) Close() error {
 {{if .Description}}// {{.Name}} - {{.Description}}{{end}}
 func (a *{{$.Schema.Name|visibility}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}{{end}}) ({{if $response.Streaming}}*{{.Name|visibility}}Stream, {{else}}{{if $response.Type}}{{$response.Type|type}}, {{end}}{{end}}error) {
 	{{if and (not $response.Streaming) $response.Type}}{{var "resp" $response.Type}}
-	{{end}}r := rapid.Request("{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}.Build()
+	{{end}}r := rapid.Request(a.Protocol, "{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}.Build()
 	{{if $response.Streaming}}stream, err := a.C.DoStreaming({{else}}err := a.C.Do({{end}}r, {{if not $response.Streaming}}{{ref "resp" $response.Type}},{{end}})
 	{{if $response.Streaming}}return &{{.Name|visibility}}Stream{stream}, err{{else}}{{if $response.Type}}return resp, err{{else}}return err{{end}}{{end}}
 }
