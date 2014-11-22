@@ -43,6 +43,7 @@ type RequestTemplate struct {
 	protocol Protocol
 	method   string
 	path     string
+	headers  http.Header
 	body     []byte
 }
 
@@ -51,7 +52,7 @@ func (r *RequestTemplate) Build(url string) *http.Request {
 	if err != nil {
 		panic(err)
 	}
-	h.Header.Set("Content-Type", r.protocol.ContentType())
+	h.Header = r.headers
 	return h
 }
 
@@ -102,7 +103,10 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
-	body, err := r.protocol.WriteRequest(r.body)
+	var body []byte
+	var headers http.Header
+	var err error
+	headers, body, err = r.protocol.WriteRequest(r.body)
 	if err != nil {
 		panic(err)
 	}
@@ -110,6 +114,7 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 		protocol: r.protocol,
 		method:   r.method,
 		path:     path,
+		headers:  headers,
 		body:     body,
 	}
 }

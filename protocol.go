@@ -5,35 +5,21 @@ import (
 	"net/http"
 )
 
-// ProtocolResponse is the wire-format for a RAPID response.
-type ProtocolResponse struct {
-	Status int         `json:"s" msgpack:"s"`
-	Error  string      `json:"e,omitempty" msgpack:"e"`
-	Data   interface{} `json:"d,omitempty" msgpack:"d"`
-}
-
-// Used during decoding to unwrap the framing ProtocolResponse structure.
-type intermediateProtocolResponse struct {
-	Status int             `json:"s" msgpack:"s"`
-	Error  string          `json:"e,omitempty" msgpack:"e"`
-	Data   json.RawMessage `json:"d,omitempty" msgpack:"d"`
+// ErrorResponse is the wire-format for a RAPID error response.
+type ErrorResponse struct {
+	Error string `json:"e,omitempty" msgpack:"e"`
 }
 
 // Protocol contains various functions for assisting in translation between
 // HTTP and the RAPID Go API.
 type Protocol interface {
-	ContentType() string
 	ReadRequest(r *http.Request, v interface{}) error
 	WriteResponse(r *http.Request, w http.ResponseWriter, status int, err error, data interface{})
-	WriteRequest(v interface{}) (body []byte, err error)
+	WriteRequest(v interface{}) (headers http.Header, body []byte, err error)
 	ReadResponse(hr *http.Response, v interface{}) error
 }
 
 type DefaultProtocol struct{}
-
-func (d *DefaultProtocol) ContentType() string {
-	return "application/json"
-}
 
 func (d *DefaultProtocol) ReadRequest(r *http.Request, v interface{}) error {
 	// TODO: Parse Accept header, etc.
@@ -42,31 +28,30 @@ func (d *DefaultProtocol) ReadRequest(r *http.Request, v interface{}) error {
 
 func (d *DefaultProtocol) WriteResponse(r *http.Request, w http.ResponseWriter, status int, err error, data interface{}) {
 	status, err = TranslateError(r, status, err)
-	w.Header().Set("Content-Type", d.ContentType())
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err != nil {
-		data = &ProtocolResponse{Status: status, Error: err.Error()}
+		data = &ErrorResponse{Error: err.Error()}
 	}
 	_ = json.NewEncoder(w).Encode(data)
 }
 
-func (d *DefaultProtocol) WriteRequest(v interface{}) ([]byte, error) {
-	body, err := json.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	return body, err
+var contentTypeHeader = http.Header{"Content-Type": []string{"application/json"}, "Accept": []string{"application/json"}}
+
+func (d *DefaultProtocol) WriteRequest(v interface{}) (http.Header, []byte, error) {
+	data, err := json.Marshal(v)
+	return contentTypeHeader, data, err
 }
 
 func (d *DefaultProtocol) ReadResponse(r *http.Response, v interface{}) error {
 	if r.StatusCode < 200 || r.StatusCode >= 300 {
-		response := &intermediateProtocolResponse{}
+		response := &ErrorResponse{}
 		if err := json.NewDecoder(r.Body).Decode(response); err != nil {
 			// Not a valid response structure, return error.
 			return Error(http.StatusInternalServerError, err.Error())
 		}
 		// Use error in response structure.
-		return Error(response.Status, response.Error)
+		return Error(r.StatusCode, response.Error)
 	}
 	return json.NewDecoder(r.Body).Decode(v)
 }
