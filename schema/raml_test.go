@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/stretchrcom/testify/assert"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/alecthomas/rapid"
 	"github.com/alecthomas/rapid/schema"
