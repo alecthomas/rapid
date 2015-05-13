@@ -206,6 +206,17 @@ func (r *route) Request(req interface{}) *route {
 	return r
 }
 
+// FileUpload specifies that this route is a multipart form file upload.
+func (r *route) FileUpload() *route {
+	r.model.FileUpload = true
+	return r.Method("POST")
+}
+
+// FileDownload defines this route as a file download. The response type is of type FileDownload.
+func (r *route) FileDownload(status int) *route {
+	return r.Response(status, &FileDownload{})
+}
+
 func (r *route) Response(status int, typ interface{}) *route {
 	return r.Responses(Response(status, typ))
 }

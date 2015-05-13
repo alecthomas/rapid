@@ -54,12 +54,17 @@ func (r *Resource) Hidden() bool {
 	return true
 }
 
+// FileUpload can be used as the Request() type to indicate a normal file
+// upload request.
+type FileUpload struct{}
+
 type Route struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description,omitempty"`
 	Example     string       `json:"example,omitempty"`
 	Path        string       `json:"path"`
 	Method      string       `json:"method"`
+	FileUpload  bool         `json:"file_upload"`
 	RequestType reflect.Type `json:"request_type"`
 	Responses   []*Response  `json:"responses"`
 	QueryType   reflect.Type `json:"query_type"`

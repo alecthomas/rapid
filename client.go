@@ -3,7 +3,11 @@ package rapid
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/alecthomas/rapid/schema"
@@ -62,6 +66,7 @@ func (r *RequestTemplate) String() string {
 
 type RequestBuilder struct {
 	protocol Protocol
+	filename string
 	method   string
 	path     string
 	query    interface{}
@@ -97,6 +102,18 @@ func (r *RequestBuilder) Body(v interface{}) *RequestBuilder {
 	return r
 }
 
+func (r *RequestBuilder) FileData(path string, data []byte) *RequestBuilder {
+	r.filename = path
+	r.body = ioutil.NopCloser(bytes.NewReader(data))
+	return r
+}
+
+func (r *RequestBuilder) File(path string, rc io.ReadCloser) *RequestBuilder {
+	r.filename = path
+	r.body = rc
+	return r
+}
+
 func (r *RequestBuilder) Build() *RequestTemplate {
 	path := strings.TrimLeft(r.path, "/")
 	q := schema.EncodeStructToURLValues(r.query)
@@ -106,9 +123,13 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 	var body []byte
 	var headers http.Header
 	var err error
-	headers, body, err = r.protocol.WriteRequest(r.body)
-	if err != nil {
-		panic(err)
+	if r.filename != "" {
+		body, headers = r.makeFileUpload()
+	} else {
+		headers, body, err = r.protocol.WriteRequest(r.body)
+		if err != nil {
+			panic(err)
+		}
 	}
 	return &RequestTemplate{
 		protocol: r.protocol,
@@ -117,6 +138,25 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 		headers:  headers,
 		body:     body,
 	}
+}
+
+func (r *RequestBuilder) makeFileUpload() ([]byte, http.Header) {
+	in := r.body.(io.ReadCloser)
+	defer in.Close()
+	out := &bytes.Buffer{}
+	w := multipart.NewWriter(out)
+	defer w.Close()
+	part, err := w.CreateFormFile("file", filepath.Base(r.path))
+	if err != nil {
+		panic(err)
+	}
+	_, err = io.Copy(part, in)
+	if err != nil {
+		panic(err)
+	}
+	headers := http.Header{}
+	headers.Add("Content-Type", w.FormDataContentType())
+	return out.Bytes(), headers
 }
 
 // A BasicClient is a simple client that issues one request per API call. It
@@ -156,7 +196,6 @@ func (b *BasicClient) Do(req *RequestTemplate, resp interface{}) error {
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
 	return b.protocol.ReadResponse(response, resp)
 }
 

@@ -2,6 +2,8 @@ package rapid
 
 import (
 	"encoding/json"
+	"io"
+	"mime"
 	"net/http"
 )
 
@@ -16,6 +18,8 @@ type Protocol interface {
 	ReadRequest(r *http.Request, v interface{}) error
 	WriteResponse(r *http.Request, w http.ResponseWriter, status int, err error, data interface{})
 	WriteRequest(v interface{}) (headers http.Header, body []byte, err error)
+	// ReadResponse is responsible for decoding a response body int v. It must
+	// ensure that hr.Body is closed at some stage.
 	ReadResponse(hr *http.Response, v interface{}) error
 }
 
@@ -43,7 +47,18 @@ func (d *DefaultProtocol) WriteRequest(v interface{}) (http.Header, []byte, erro
 	return contentTypeHeader, data, err
 }
 
+type FileDownload struct {
+	Filename  string
+	MediaType string
+	Reader    io.Reader
+}
+
 func (d *DefaultProtocol) ReadResponse(r *http.Response, v interface{}) error {
+	// TODO: This might be better as an interface (eg. Closable) so that user
+	// types can prevent the body from being closed.
+	if _, ok := v.(*FileDownload); !ok {
+		defer r.Body.Close()
+	}
 	if r.StatusCode < 200 || r.StatusCode >= 300 {
 		response := &ErrorResponse{}
 		if err := json.NewDecoder(r.Body).Decode(response); err != nil {
@@ -52,6 +67,18 @@ func (d *DefaultProtocol) ReadResponse(r *http.Response, v interface{}) error {
 		}
 		// Use error in response structure.
 		return Error(r.StatusCode, response.Error)
+	}
+
+	// Outputting to FileDownload...just copy the response body directly.
+	if d, ok := v.(*FileDownload); ok {
+		mt, params, err := mime.ParseMediaType(r.Header.Get("Content-Disposition"))
+		if err != nil {
+			return err
+		}
+		d.MediaType = mt
+		d.Filename = params["filename"]
+		d.Reader = r.Body
+		return err
 	}
 	return json.NewDecoder(r.Body).Decode(v)
 }

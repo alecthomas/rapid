@@ -8,9 +8,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"text/template"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/alecthomas/template"
 )
 
 var (
@@ -62,9 +63,9 @@ func (s *{{.Name|visibility}}Stream) Close() error {
 }
 {{end}}
 {{if .Description}}// {{.Name}} - {{.Description}}{{end}}
-func (a *{{$.Schema.Name|visibility}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}{{end}}) ({{if $response.Streaming}}*{{.Name|visibility}}Stream, {{else}}{{if $response.Type}}{{$response.Type|type}}, {{end}}{{end}}error) {
+func (a *{{$.Schema.Name|visibility}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}, {{end}}{{if .FileUpload}}filename string, rc io.ReadCloser{{end}}) ({{if $response.Streaming}}*{{.Name|visibility}}Stream, {{else}}{{if $response.Type}}{{$response.Type|type}}, {{end}}{{end}}error) {
 	{{if and (not $response.Streaming) $response.Type}}{{var "resp" $response.Type}}
-	{{end}}r := rapid.Request(a.Protocol, "{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}.Build()
+	{{end}}r := rapid.Request(a.Protocol, "{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}{{if .FileUpload}}.File(filename, rc){{end}}.Build()
 	{{if $response.Streaming}}stream, err := a.C.DoStreaming({{else}}err := a.C.Do({{end}}r, {{if not $response.Streaming}}{{ref "resp" $response.Type}},{{end}})
 	{{if $response.Streaming}}return &{{.Name|visibility}}Stream{stream}, err{{else}}{{if $response.Type}}return resp, err{{else}}return err{{end}}{{end}}
 }
