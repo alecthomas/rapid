@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/alecthomas/rapid"
-	"github.com/alecthomas/rapid/schema"
 )
 
 type ID struct {
@@ -28,7 +27,7 @@ type TestRAMLResponseType struct {
 	Name string
 }
 
-func makeTestSchema() *schema.Schema {
+func makeTestSchema() *Schema {
 	d := rapid.Define("Test")
 	d.Route("List", "/user").Get().Response(200, []TestRAMLResponseType{})
 	d.Route("Get", "/user/{id}").Get().Query(TestRAMLQueryType{}).Path(TestRAMLPathType{}).Response(200, TestRAMLResponseType{})
@@ -37,7 +36,7 @@ func makeTestSchema() *schema.Schema {
 
 func TestSchemaToRAML(t *testing.T) {
 	w := &bytes.Buffer{}
-	err := schema.SchemaToRAML("http://localhost:8080", makeTestSchema(), w)
+	err := SchemaToRAML("http://localhost:8080", makeTestSchema(), w)
 	assert.NoError(t, err)
 	fmt.Printf("%s\n", w.String())
 }

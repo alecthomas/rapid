@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"reflect"
 	"strconv"
+	"time"
 )
 
 // EncodeStructToURLValues reflects over a struct, encoding it to a url.Values
@@ -41,6 +42,13 @@ func EncodeStructToURLValues(i interface{}) (values url.Values) {
 }
 
 func encodeBaseType(v reflect.Value) string {
+	switch val := v.Interface().(type) {
+	case time.Duration:
+		return val.String()
+	case time.Time:
+		return val.String()
+	}
+
 	switch v.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return strconv.FormatInt(v.Int(), 10)
