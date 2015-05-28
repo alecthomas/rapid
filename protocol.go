@@ -92,8 +92,10 @@ func TranslateError(r *http.Request, status int, err error) (int, error) {
 			} else {
 				status = http.StatusOK
 			}
+		} else if status < 200 || status > 299 {
+			err = ErrorForStatus(status)
 		}
-		return status, nil
+		return status, err
 	}
 
 	// Check if it's a HTTPStatus error, in which case check the status code.
