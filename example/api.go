@@ -30,14 +30,20 @@ func UserServiceDefinition() *rapid.Schema {
 		Get().
 		Response(http.StatusOK, []*User{}).
 		Description("Retrieve a list of known users.").Query(&UsersQuery{})
-	users.Route("Changes", "/users/changes").
-		Get().
-		Responses(rapid.Response(http.StatusOK, 0).Streaming()).
-		Description("A streaming response of change IDs.")
+	// users.Route("Changes", "/users/changes").
+	// 	Get().
+	// 	Responses(rapid.Response(http.StatusOK, 0).Streaming()).
+	// 	Description("A streaming response of change IDs.")
 	users.Route("GetUser", "/users/{username}").
 		Get().
 		Response(http.StatusOK, &User{}).
 		Description("Retrieve a single user by username.").
+		Path(&UserPath{})
+	users.Route("SetUserAvatar", "/users/{username}/avatar").
+		Post().
+		Request(&rapid.FileUpload{}).
+		Response(http.StatusOK, &User{}).
+		Description("Set user avatar.").
 		Path(&UserPath{})
 	return api.Build()
 }
@@ -116,4 +122,8 @@ func (u *UserService) Changes(cancel rapid.CloseNotifierChannel) (chan int, chan
 		}
 	}()
 	return dc, ec
+}
+
+func (u *UserService) SetUserAvatar(file *rapid.FileUpload) error {
+	defer file.Reader.Close()
 }

@@ -25,22 +25,22 @@ import (
 {{if .Schema.Description}}// {{.Schema.Name|visibility}}Client - {{.Schema.Description}}{{end}}
 type {{.Schema.Name|visibility}}Client struct {
 	C rapid.Client
-	Protocol rapid.Protocol
+	Codec rapid.RequestResponseCodecFactory
 }
 
 {{if .Schema.Description}}// {{"Dial"|visibility}}{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API.{{end}}
-func {{"Dial"|visibility}}{{.Schema.Name}}(protocol rapid.Protocol, url string) (*{{.Schema.Name|visibility}}Client, error) {
-	c, err := rapid.Dial(protocol, url)
+func {{"Dial"|visibility}}{{.Schema.Name}}(codec rapid.RequestResponseCodecFactory, url string) (*{{.Schema.Name|visibility}}Client, error) {
+	c, err := rapid.Dial(codec, url)
 	if err != nil {
 		return nil, err
 	}
-	return &{{.Schema.Name|visibility}}Client{C: c, Protocol: protocol}, nil
+	return &{{.Schema.Name|visibility}}Client{C: c, Codec: codec}, nil
 }
 
 
 {{if .Schema.Description}}// {{"New"|visibility}}{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API using an existing rapid.Client.{{end}}
-func {{"New"|visibility}}{{.Schema.Name}}Client(protocol rapid.Protocol, client rapid.Client) *{{.Schema.Name|visibility}}Client {
-	return &{{.Schema.Name|visibility}}Client{C: client, Protocol: protocol}
+func {{"New"|visibility}}{{.Schema.Name}}Client(codec rapid.RequestResponseCodecFactory, client rapid.Client) *{{.Schema.Name|visibility}}Client {
+	return &{{.Schema.Name|visibility}}Client{C: client, Codec: codec}
 }
 
 {{range .Schema.Resources}}
@@ -63,9 +63,11 @@ func (s *{{.Name|visibility}}Stream) Close() error {
 }
 {{end}}
 {{if .Description}}// {{.Name}} - {{.Description}}{{end}}
-func (a *{{$.Schema.Name|visibility}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}, {{end}}{{if .FileUpload}}filename string, rc io.ReadCloser{{end}}) ({{if $response.Streaming}}*{{.Name|visibility}}Stream, {{else}}{{if $response.Type}}{{$response.Type|type}}, {{end}}{{end}}error) {
-	{{if and (not $response.Streaming) $response.Type}}{{var "resp" $response.Type}}
-	{{end}}r := rapid.Request(a.Protocol, "{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}{{if .FileUpload}}.File(filename, rc){{end}}.Build()
+func (a *{{$.Schema.Name|visibility}}Client) {{.Name}}({{if .PathType}}{{.PathType|params}}, {{end}}{{if .RequestType}}req {{.RequestType|type}}, {{end}}{{if .QueryType}}query {{.QueryType|type}}, {{end}}) ({{if $response.Streaming}}*{{.Name|visibility}}Stream, {{else}}{{if $response.Type}}{{$response.Type|type}}, {{end}}{{end}}error) {
+	{{if and (not $response.Streaming) $response.Type}}\
+	{{var "resp" $response.Type}}
+	{{end}}\
+	r := rapid.Request(a.Codec, "{{.Method}}", "{{.SimplifyPath}}", {{range .PathType|names}}{{.}},{{end}}){{if .QueryType}}.Query(query){{end}}{{if .RequestType}}.Body(req){{end}}.Build()
 	{{if $response.Streaming}}stream, err := a.C.DoStreaming({{else}}err := a.C.Do({{end}}r, {{if not $response.Streaming}}{{ref "resp" $response.Type}},{{end}})
 	{{if $response.Streaming}}return &{{.Name|visibility}}Stream{stream}, err{{else}}{{if $response.Type}}return resp, err{{else}}return err{{end}}{{end}}
 }
@@ -214,6 +216,9 @@ func goPathNames(t reflect.Type) []string {
 }
 
 func goTypeDecl(pkg string, name string, t reflect.Type) string {
+	if t.Name() != "" {
+		return fmt.Sprintf("%s := %s{}", name, goTypeReference(pkg, t))
+	}
 	switch t.Kind() {
 	case reflect.Slice:
 		return fmt.Sprintf("%s := []%s{}", name, goTypeReference(pkg, t.Elem()))
@@ -270,14 +275,15 @@ func SchemaToGoClient(schema *Schema, private bool, pkg string, w io.Writer) err
 		Private: private,
 	}
 	goFuncs := template.FuncMap{
-		"type":       func(t reflect.Type) string { return goTypeReference(pkg, t) },
-		"title":      strings.Title,
-		"params":     func(t reflect.Type) string { return goPathTypeToParams(pkg, t) },
-		"names":      goPathNames,
-		"var":        func(name string, t reflect.Type) string { return goTypeDecl(pkg, name, t) },
-		"ref":        goTypeRef,
-		"needsalloc": func(t reflect.Type) bool { return t != nil && (t.Kind() == reflect.Ptr) },
-		"isslice":    func(t reflect.Type) bool { return t != nil && t.Kind() == reflect.Slice },
+		"type":        func(t reflect.Type) string { return goTypeReference(pkg, t) },
+		"title":       strings.Title,
+		"params":      func(t reflect.Type) string { return goPathTypeToParams(pkg, t) },
+		"names":       goPathNames,
+		"var":         func(name string, t reflect.Type) string { return goTypeDecl(pkg, name, t) },
+		"ref":         goTypeRef,
+		"needsalloc":  func(t reflect.Type) bool { return t != nil && (t.Kind() == reflect.Ptr) },
+		"isslice":     func(t reflect.Type) bool { return t != nil && t.Kind() == reflect.Slice },
+		"isencodable": func(v interface{}) bool { _, ok := v.(RequestCodec); return ok },
 		"visibility": func(name string) string {
 			if private {
 				return lowerFirst(name)

@@ -5,11 +5,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"mime/multipart"
 	"net/http"
-	"path/filepath"
 	"strings"
-
 )
 
 type BeforeClientRequest func(*http.Request) error
@@ -43,11 +40,11 @@ func MustClient(client Client, err error) Client {
 
 // A RequestTemplate can be used to build a new http.Request from scratch.
 type RequestTemplate struct {
-	protocol Protocol
-	method   string
-	path     string
-	headers  http.Header
-	body     []byte
+	codec   RequestResponseCodecFactory
+	method  string
+	path    string
+	headers http.Header
+	body    []byte
 }
 
 func (r *RequestTemplate) Build(url string) *http.Request {
@@ -64,7 +61,7 @@ func (r *RequestTemplate) String() string {
 }
 
 type RequestBuilder struct {
-	protocol Protocol
+	codec    RequestResponseCodecFactory
 	filename string
 	method   string
 	path     string
@@ -75,16 +72,16 @@ type RequestBuilder struct {
 // Request makes a new RequestBuilder. A RequestBuilder is a type with useful
 // constructs for building rapid-conformant HTTP requests.
 // Parameters in the form {name} are interpolated into the path from params.
-// eg. Request(protocol, "GET", "/{id}", 10)
-func Request(protocol Protocol, method, path string, params ...interface{}) *RequestBuilder {
-	if protocol == nil {
-		protocol = &DefaultProtocol{}
+// eg. Request(codec, "GET", "/{id}", 10)
+func Request(codec RequestResponseCodecFactory, method, path string, params ...interface{}) *RequestBuilder {
+	if codec == nil {
+		codec = DefaultCodecFactory
 	}
 	path = InterpolatePath(path, params...)
 	return &RequestBuilder{
-		protocol: protocol,
-		method:   method,
-		path:     path,
+		codec:  codec,
+		method: method,
+		path:   path,
 	}
 }
 
@@ -113,67 +110,51 @@ func (r *RequestBuilder) File(path string, rc io.ReadCloser) *RequestBuilder {
 	return r
 }
 
+func (r *RequestBuilder) Data(data []byte) *RequestBuilder {
+	r.body = ioutil.NopCloser(bytes.NewReader(data))
+	return r
+}
+
 func (r *RequestBuilder) Build() *RequestTemplate {
 	path := strings.TrimLeft(r.path, "/")
 	q := EncodeStructToURLValues(r.query)
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
-	var body []byte
-	var headers http.Header
-	var err error
-	if r.filename != "" {
-		body, headers = r.makeFileUpload()
-	} else {
-		headers, body, err = r.protocol.WriteRequest(r.body)
-		if err != nil {
-			panic(err)
-		}
+	headers, bodyr, err := MakeRequestCodec(r.body, r.codec).EncodeRequest()
+	if err != nil {
+		panic(err)
+	}
+	defer bodyr.Close()
+	body, err := ioutil.ReadAll(bodyr)
+	if err != nil {
+		panic(err)
 	}
 	return &RequestTemplate{
-		protocol: r.protocol,
-		method:   r.method,
-		path:     path,
-		headers:  headers,
-		body:     body,
+		codec:   r.codec,
+		method:  r.method,
+		path:    path,
+		headers: headers,
+		body:    body,
 	}
-}
-
-func (r *RequestBuilder) makeFileUpload() ([]byte, http.Header) {
-	in := r.body.(io.ReadCloser)
-	defer in.Close()
-	out := &bytes.Buffer{}
-	w := multipart.NewWriter(out)
-	defer w.Close()
-	part, err := w.CreateFormFile("file", filepath.Base(r.path))
-	if err != nil {
-		panic(err)
-	}
-	_, err = io.Copy(part, in)
-	if err != nil {
-		panic(err)
-	}
-	headers := http.Header{}
-	headers.Add("Content-Type", w.FormDataContentType())
-	return out.Bytes(), headers
 }
 
 // A BasicClient is a simple client that issues one request per API call. It
 // does not perform retries.
 type BasicClient struct {
-	protocol   Protocol
+	codec      RequestResponseCodecFactory
 	url        string
 	beforeHook BeforeClientRequest
 	httpClient *http.Client
 }
 
-// Dial creates a new RAPID client with url as its endpoint, using the given protocol.
-func Dial(protocol Protocol, url string) (*BasicClient, error) {
+// Dial creates a new RAPID client with url as its endpoint, using the given codec.
+func Dial(codec RequestResponseCodecFactory, url string) (*BasicClient, error) {
 	if !strings.HasSuffix(url, "/") {
 		url += "/"
 	}
 	return &BasicClient{
-		protocol:   protocol,
+		codec:      codec,
 		url:        url,
 		httpClient: &http.Client{},
 	}, nil
@@ -195,7 +176,7 @@ func (b *BasicClient) Do(req *RequestTemplate, resp interface{}) error {
 	if err != nil {
 		return err
 	}
-	return b.protocol.ReadResponse(response, resp)
+	return MakeResponseCodec(resp, b.codec).DecodeResponse(response)
 }
 
 func (b *BasicClient) HTTPClient() *http.Client {

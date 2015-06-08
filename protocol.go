@@ -1,64 +1,99 @@
 package rapid
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
-	"mime"
+	"io/ioutil"
 	"net/http"
 )
 
+// Encoding and decoding requests on the client and server, respectively.
+type RequestCodec interface {
+	// Encode request on client.
+	EncodeRequest() (headers http.Header, body io.ReadCloser, err error)
+	// Decode request.
+	DecodeRequest(r *http.Request) error
+}
+
+// Encoding and decoding responses on the server and client, respectively.
+type ResponseCodec interface {
+	// Encode response into w.
+	// "http.Request" is included to support Accept-based responses.
+	EncodeResponse(r *http.Request, w http.ResponseWriter, status int, err error) error
+	// Decode response from r.
+	DecodeResponse(r *http.Response) error
+}
+
+type RequestResponseCodec interface {
+	RequestCodec
+	ResponseCodec
+}
+
 // ErrorResponse is the wire-format for a RAPID error response.
 type ErrorResponse struct {
-	Error string `json:"e,omitempty" msgpack:"e"`
+	Error string `json:"e,omitempty"`
 }
 
-// Protocol contains various functions for assisting in translation between
-// HTTP and the RAPID Go API.
-type Protocol interface {
-	ReadRequest(r *http.Request, v interface{}) error
-	WriteResponse(r *http.Request, w http.ResponseWriter, status int, err error, data interface{})
-	WriteRequest(v interface{}) (headers http.Header, body []byte, err error)
-	// ReadResponse is responsible for decoding a response body int v. It must
-	// ensure that hr.Body is closed at some stage.
-	ReadResponse(hr *http.Response, v interface{}) error
+// Default, JSON codec.
+type defaultCodec struct {
+	v interface{}
 }
 
-type DefaultProtocol struct{}
+type RequestResponseCodecFactory func(v interface{}) RequestResponseCodec
 
-func (d *DefaultProtocol) ReadRequest(r *http.Request, v interface{}) error {
+func MakeRequestCodec(v interface{}, factory RequestResponseCodecFactory) RequestCodec {
+	if c, ok := v.(RequestCodec); ok {
+		return c
+	}
+	return factory(v)
+}
+
+func MakeResponseCodec(v interface{}, factory RequestResponseCodecFactory) ResponseCodec {
+	if c, ok := v.(ResponseCodec); ok {
+		return c
+	}
+	return factory(v)
+}
+
+func MakeRequestResponseCodec(v interface{}, factory RequestResponseCodecFactory) RequestResponseCodec {
+	if c, ok := v.(RequestResponseCodec); ok {
+		return c
+	}
+	return factory(v)
+}
+
+func DefaultCodecFactory(v interface{}) RequestResponseCodec {
+	return &defaultCodec{v}
+}
+
+var contentTypeHeader = http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}}
+
+func (d *defaultCodec) EncodeRequest() (http.Header, io.ReadCloser, error) {
+	body, err := json.Marshal(d.v)
+	if err != nil {
+		return nil, nil, err
+	}
+	return contentTypeHeader, ioutil.NopCloser(bytes.NewReader(body)), nil
+}
+
+func (d *defaultCodec) DecodeRequest(r *http.Request) error {
 	// TODO: Parse Accept header, etc.
-	return json.NewDecoder(r.Body).Decode(v)
+	return json.NewDecoder(r.Body).Decode(d.v)
 }
 
-func (d *DefaultProtocol) WriteResponse(r *http.Request, w http.ResponseWriter, status int, err error, data interface{}) {
+func (d *defaultCodec) EncodeResponse(r *http.Request, w http.ResponseWriter, status int, err error) error {
 	status, err = TranslateError(r, status, err)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	data := d.v
 	if err != nil {
 		data = &ErrorResponse{Error: err.Error()}
 	}
-	_ = json.NewEncoder(w).Encode(data)
+	return json.NewEncoder(w).Encode(data)
 }
 
-var contentTypeHeader = http.Header{"Content-Type": []string{"application/json"}, "Accept": []string{"application/json"}}
-
-func (d *DefaultProtocol) WriteRequest(v interface{}) (http.Header, []byte, error) {
-	data, err := json.Marshal(v)
-	return contentTypeHeader, data, err
-}
-
-type FileDownload struct {
-	Filename  string
-	MediaType string
-	Reader    io.Reader
-}
-
-func (d *DefaultProtocol) ReadResponse(r *http.Response, v interface{}) error {
-	// TODO: This might be better as an interface (eg. Closable) so that user
-	// types can prevent the body from being closed.
-	if _, ok := v.(*FileDownload); !ok {
-		defer r.Body.Close()
-	}
+func (d *defaultCodec) DecodeResponse(r *http.Response) error {
 	if r.StatusCode < 200 || r.StatusCode >= 300 {
 		response := &ErrorResponse{}
 		if err := json.NewDecoder(r.Body).Decode(response); err != nil {
@@ -68,19 +103,7 @@ func (d *DefaultProtocol) ReadResponse(r *http.Response, v interface{}) error {
 		// Use error in response structure.
 		return Error(r.StatusCode, response.Error)
 	}
-
-	// Outputting to FileDownload...just copy the response body directly.
-	if d, ok := v.(*FileDownload); ok {
-		mt, params, err := mime.ParseMediaType(r.Header.Get("Content-Disposition"))
-		if err != nil {
-			return err
-		}
-		d.MediaType = mt
-		d.Filename = params["filename"]
-		d.Reader = r.Body
-		return err
-	}
-	return json.NewDecoder(r.Body).Decode(v)
+	return json.NewDecoder(r.Body).Decode(d.v)
 }
 
 func TranslateError(r *http.Request, status int, err error) (int, error) {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -57,33 +56,6 @@ func (l *loggerSink) Errorf(fmt string, args ...interface{})   {}
 
 type CloseNotifierChannel <-chan bool
 
-type chunkedResponseWriter struct {
-	w  http.ResponseWriter
-	cw io.WriteCloser
-}
-
-func newChunkedResponseWriter(w http.ResponseWriter) *chunkedResponseWriter {
-	return &chunkedResponseWriter{
-		w:  w,
-		cw: httputil.NewChunkedWriter(w),
-	}
-}
-
-func (c *chunkedResponseWriter) Header() http.Header {
-	return c.w.Header()
-}
-
-func (c *chunkedResponseWriter) Write(b []byte) (int, error) {
-	return c.cw.Write(b)
-}
-func (c *chunkedResponseWriter) WriteHeader(status int) {
-	c.WriteHeader(status)
-}
-
-func (c *chunkedResponseWriter) Close() error {
-	return c.cw.Close()
-}
-
 type HTTPStatus struct {
 	Status  int
 	Message string
@@ -132,7 +104,7 @@ type BeforeHandlerFunc interface{}
 type Server struct {
 	schema        *Schema
 	matches       []*routeMatch
-	protocol      Protocol
+	codec         RequestResponseCodecFactory
 	log           Logger
 	Injector      inject.Injector
 	handler       interface{}
@@ -160,7 +132,7 @@ func NewServer(schema *Schema, handler interface{}) (*Server, error) {
 	s := &Server{
 		schema:   schema,
 		matches:  matches,
-		protocol: &DefaultProtocol{},
+		codec:    DefaultCodecFactory,
 		log:      &loggerSink{},
 		Injector: inject.New(),
 		handler:  handler,
@@ -168,11 +140,11 @@ func NewServer(schema *Schema, handler interface{}) (*Server, error) {
 	return s, nil
 }
 
-func (s *Server) SetProtocol(protocol Protocol) *Server {
-	s.protocol = protocol
+func (s *Server) Codec(codec RequestResponseCodecFactory) *Server {
+	s.codec = codec
 	return s
 }
-func (s *Server) SetLogger(log Logger) *Server {
+func (s *Server) Logger(log Logger) *Server {
 	s.log = log
 	return s
 }
@@ -203,7 +175,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Match URL and method.
 	match, parts := s.match(r)
 	if match == nil {
-		s.protocol.WriteResponse(r, w, http.StatusNotFound, nil, nil)
+		MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusNotFound, nil)
 		return
 	}
 
@@ -219,12 +191,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		err := schemadecoder.Decode(path, values)
 		if err != nil {
-			s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
+			MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
 			return
 		}
 		if v, ok := path.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
+				MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
 				return
 			}
 		}
@@ -236,12 +208,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		query := reflect.New(indirect(match.route.QueryType)).Interface()
 		err := schemadecoder.Decode(query, r.URL.Query())
 		if err != nil {
-			s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
+			MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
 			return
 		}
 		if v, ok := query.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
+				MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
 				return
 			}
 		}
@@ -251,14 +223,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Decode request body, if any.
 	if match.route.RequestType != nil {
 		req := reflect.New(indirect(match.route.RequestType)).Interface()
-		err := s.protocol.ReadRequest(r, req)
+		err := MakeRequestCodec(req, s.codec).DecodeRequest(r)
 		if err != nil {
-			s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
+			MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
 			return
 		}
 		if v, ok := req.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				s.protocol.WriteResponse(r, w, http.StatusBadRequest, err, nil)
+				MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
 				return
 			}
 		}
@@ -288,7 +260,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !rerr.IsNil() {
 			err = rerr.Interface().(error)
 			if err != nil {
-				s.protocol.WriteResponse(r, w, 500, err, nil)
+				MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, 500, err)
 				return
 			}
 		}
@@ -342,7 +314,7 @@ func (s *Server) handleScalar(route *RouteSchema, closeNotifier CloseNotifierCha
 	if !rerr.IsNil() {
 		err = rerr.Interface().(error)
 	}
-	s.protocol.WriteResponse(r, w, 0, err, data)
+	MakeResponseCodec(data, s.codec).EncodeResponse(r, w, 0, err)
 }
 
 func (s *Server) match(r *http.Request) (*routeMatch, Params) {

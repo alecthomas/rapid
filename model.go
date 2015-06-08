@@ -18,10 +18,10 @@ func (r RoutesSchema) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
 func (r RoutesSchema) Less(i, j int) bool { return r[i].Path < r[j].Path }
 
 type Schema struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	Example     string           `json:"example"`
-	Version     string           `json:"version,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Example     string            `json:"example"`
+	Version     string            `json:"version,omitempty"`
 	Resources   []*ResourceSchema `json:"resources"`
 }
 
@@ -35,9 +35,9 @@ func (s *Schema) ResourceByPath(path string) *ResourceSchema {
 }
 
 type ResourceSchema struct {
-	Path        string      `json:"path"`
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
+	Path        string       `json:"path"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
 	Routes      RoutesSchema `json:"routes"`
 }
 
@@ -55,17 +55,17 @@ func (r *ResourceSchema) Hidden() bool {
 }
 
 type RouteSchema struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description,omitempty"`
-	Example     string           `json:"example,omitempty"`
-	Path        string           `json:"path"`
-	Method      string           `json:"method"`
-	FileUpload  bool             `json:"file_upload"`
-	RequestType reflect.Type     `json:"request_type"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Example     string            `json:"example,omitempty"`
+	Path        string            `json:"path"`
+	Method      string            `json:"method"`
+	FileUpload  bool              `json:"file_upload"`
+	RequestType reflect.Type      `json:"request_type"`
 	Responses   []*ResponseSchema `json:"responses"`
-	QueryType   reflect.Type     `json:"query_type"`
-	PathType    reflect.Type     `json:"path_type"`
-	SecuredBy   []string         `json:"secured_by"`
+	QueryType   reflect.Type      `json:"query_type"`
+	PathType    reflect.Type      `json:"path_type"`
+	SecuredBy   []string          `json:"secured_by"`
 
 	Hidden bool `json:"-"` // A hint that this should be hidden from public API descriptions.
 }

@@ -18,7 +18,6 @@ users := rapid.Define("Users")
 users.Route("ListUsers").Get("/users").Response(http.StatusOK, []*User{})
 users.Route("GetUser").Get("/users/{id}").Response(http.StatusOK, &User{})
 users.Route("CreateUser").Post("/users").Request(http.StatusCreated, &User{})
-users.Route("Changes").Get("/changes").Streaming().Response(http.StatusOK, 0)
 ```
 
 Once your schema is defined you can create a service implementation. Each
@@ -42,24 +41,6 @@ func (u *UserService) CreateUser(user *User) error {
 func (u *UserService) GetUser(params rapid.Params) (*User, error) {
   return nil, rapid.ErrorForStatus(403)
 }
-
-// Changes streams a sequence of integers to the client.
-func (u *UserService) Changes(closeNotifier rapid.CloseNotifierChannel) (chan int, chan error) {
-  dc := make(chan int)
-  ec := make(chan error)
-  go func() {
-    for i := 0; i < 10; i++ {
-      select {
-      case dc <- i:
-        time.Sleep(time.Millisecond * 500)
-      case <-closeNotifier:
-        return
-      }
-    }
-    close(dc)
-  }()
-  return dc, ec
-}
 ```
 
 Finally, bind the service definition to the implementation:
@@ -69,3 +50,46 @@ service := &UserService{}
 server, err := rapid.NewServer(users, service)
 http.ListenAndServe(":8080", server)
 ```
+
+## Encoding
+
+The encoding, headers, etc. that different REST protocols use differs
+considerably. To cater for this, RAPID supports four interfaces for
+encoding/decoding requests and  responses:
+
+```go
+// Encoding and decoding requests on the client and server, respectively.
+type RequestCodec interface {
+  // Encode request on client.
+  EncodeRequest() (headers http.Header, body io.ReadCloser, err error)
+  // Decode request.
+  DecodeRequest(r *http.Request) error
+}
+
+// Encoding and decoding responses on the server and client, respectively.
+type ResponseCodec interface {
+  // Encode response into w. http.Request is included to allow Accept-based
+  // responses.
+  EncodeResponse(r *http.Request, w http.ResponseWriter, status int, err error) error
+  // Decode response from r.
+  DecodeResponse(r *http.Response) error
+}
+
+type RequestResponseCodec interface {
+  RequestCodec
+  ResponseCodec
+}
+
+type RequestResponseCodecFactory func(v interface{}) RequestResponseCodec
+```
+
+The included implementation of `RequestResponseCodec` and
+`RequestResponseCodecFactory` supports a JSON-based API. This can be
+completely replaced by your own implementation (eg. encoding using Protocol
+Buffers, Avro, Thrift, etc.).
+
+Additionally, individual types used in the definition of responses and
+requests can implement these interfaces to override the default codec. This
+can be seen in the included `rapid.FileDownload`, `rapid.Upload` and
+`rapid.RawBytes` types. `rapid.FileDownload`, for example, sets the
+appropriate `Content-Type` and `Content-Disposition: attachment` headers.
