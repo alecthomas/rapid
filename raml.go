@@ -1,4 +1,4 @@
-package schema
+package rapid
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/alecthomas/jsonschema"
+
 	"gopkg.in/yaml.v1"
 )
 
@@ -26,11 +27,11 @@ type ramlTypeMap map[string]reflect.Type
 type rmap map[interface{}]interface{}
 
 type ramlNestedRoute struct {
-	routes Routes
+	routes RoutesSchema
 	nested map[string]*ramlNestedRoute
 }
 
-func buildRoutes(rnr *ramlNestedRoute, parts []string, r *Route) {
+func buildRoutes(rnr *ramlNestedRoute, parts []string, r *RouteSchema) {
 	if r.Hidden {
 		return
 	}
@@ -169,7 +170,7 @@ func ramlSchemaForType(t reflect.Type) rmap {
 	}
 }
 
-func resourceToRAML(url string, resource *Resource) rmap {
+func resourceToRAML(url string, resource *ResourceSchema) rmap {
 	out := rmap{}
 	// if len(r.routes) > 0 {
 	// 	route := r.routes[0]
@@ -270,7 +271,7 @@ func resourceToRAML(url string, resource *Resource) rmap {
 	return out
 }
 
-func makeRAMLRequestExample(url string, route *Route) string {
+func makeRAMLRequestExample(url string, route *RouteSchema) string {
 	w := &bytes.Buffer{}
 	w.WriteString("$ curl")
 	if route.Method != "GET" {

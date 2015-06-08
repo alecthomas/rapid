@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/alecthomas/rapid/schema"
 )
 
 type BeforeClientRequest func(*http.Request) error
@@ -81,7 +80,7 @@ func Request(protocol Protocol, method, path string, params ...interface{}) *Req
 	if protocol == nil {
 		protocol = &DefaultProtocol{}
 	}
-	path = schema.InterpolatePath(path, params...)
+	path = InterpolatePath(path, params...)
 	return &RequestBuilder{
 		protocol: protocol,
 		method:   method,
@@ -90,7 +89,7 @@ func Request(protocol Protocol, method, path string, params ...interface{}) *Req
 }
 
 // Query defines query parameters for a request. It accepts either url.Values
-// or a struct conforming to gorilla/schema.
+// or a struct conforming to gorilla/
 func (r *RequestBuilder) Query(query interface{}) *RequestBuilder {
 	r.query = query
 	return r
@@ -116,7 +115,7 @@ func (r *RequestBuilder) File(path string, rc io.ReadCloser) *RequestBuilder {
 
 func (r *RequestBuilder) Build() *RequestTemplate {
 	path := strings.TrimLeft(r.path, "/")
-	q := schema.EncodeStructToURLValues(r.query)
+	q := EncodeStructToURLValues(r.query)
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}

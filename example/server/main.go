@@ -10,7 +10,6 @@ import (
 
 	"github.com/alecthomas/rapid"
 	"github.com/alecthomas/rapid/example"
-	"github.com/alecthomas/rapid/schema"
 )
 
 var (
@@ -21,9 +20,9 @@ func main() {
 	kingpin.Parse()
 
 	users := example.UserServiceDefinition()
-	// err := schema.SchemaToGoClient(users.Schema, "main", os.Stdout)
+	// err := rapid.SchemaToGoClient(users.Schema, "main", os.Stdout)
 	w, _ := os.Create("./example/client/client.go")
-	err := schema.SchemaToGoClient(users, false, "main", w)
+	err := rapid.SchemaToGoClient(users, false, "main", w)
 	if err != nil {
 		panic(err.Error())
 	}

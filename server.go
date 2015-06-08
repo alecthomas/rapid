@@ -13,8 +13,6 @@ import (
 
 	"github.com/codegangsta/inject"
 	structschema "github.com/gorilla/schema"
-
-	"github.com/alecthomas/rapid/schema"
 )
 
 var schemadecoder *structschema.Decoder
@@ -122,7 +120,7 @@ func (p Params) Float(key string) (float64, error) {
 }
 
 type routeMatch struct {
-	route   *schema.Route
+	route   *RouteSchema
 	pattern *regexp.Regexp
 	params  []string
 	method  reflect.Value
@@ -132,7 +130,7 @@ type routeMatch struct {
 type BeforeHandlerFunc interface{}
 
 type Server struct {
-	schema        *schema.Schema
+	schema        *Schema
 	matches       []*routeMatch
 	protocol      Protocol
 	log           Logger
@@ -141,7 +139,7 @@ type Server struct {
 	beforeHandler BeforeHandlerFunc
 }
 
-func NewServer(schema *schema.Schema, handler interface{}) (*Server, error) {
+func NewServer(schema *Schema, handler interface{}) (*Server, error) {
 	matches := []*routeMatch{}
 	hr := reflect.ValueOf(handler)
 	for _, resource := range schema.Resources {
@@ -317,7 +315,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handleScalar(match.route, closeNotifier, w, r, result[0], result[1])
 }
 
-func (s *Server) handleScalar(route *schema.Route, closeNotifier CloseNotifierChannel, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerr reflect.Value) {
+func (s *Server) handleScalar(route *RouteSchema, closeNotifier CloseNotifierChannel, w http.ResponseWriter, r *http.Request, rdata reflect.Value, rerr reflect.Value) {
 	var data interface{}
 	var err error
 	switch rdata.Kind() {

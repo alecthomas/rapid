@@ -1,4 +1,4 @@
-package schema
+package rapid
 
 import (
 	"bytes"
@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/alecthomas/rapid"
 )
 
 type TestGoUser struct {
@@ -20,7 +18,7 @@ type TestGoQuery struct {
 
 func TestGo(t *testing.T) {
 	w := &bytes.Buffer{}
-	d := rapid.Define("Test")
+	d := Define("Test")
 	users := d.Resource("Users", "/users")
 	users.Route("List", "/users").Get().Query(&TestGoQuery{}).Response(200, []*TestGoUser{})
 	users.Route("Get", "/users/{id}").Get().Response(200, &TestGoUser{})

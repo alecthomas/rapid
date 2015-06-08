@@ -1,4 +1,4 @@
-package schema
+package rapid
 
 import (
 	"bytes"
@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/alecthomas/rapid"
 )
 
 type ID struct {
@@ -28,7 +26,7 @@ type TestRAMLResponseType struct {
 }
 
 func makeTestSchema() *Schema {
-	d := rapid.Define("Test")
+	d := Define("Test")
 	d.Route("List", "/user").Get().Response(200, []TestRAMLResponseType{})
 	d.Route("Get", "/user/{id}").Get().Query(TestRAMLQueryType{}).Path(TestRAMLPathType{}).Response(200, TestRAMLResponseType{})
 	return d.Build()

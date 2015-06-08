@@ -1,4 +1,4 @@
-package schema
+package rapid
 
 import (
 	"fmt"
@@ -11,21 +11,21 @@ var (
 	pathTransform = regexp.MustCompile(`{((\w+)(?::((?:\\.|[^}])+))?)}`)
 )
 
-type Routes []*Route
+type RoutesSchema []*RouteSchema
 
-func (r Routes) Len() int           { return len(r) }
-func (r Routes) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
-func (r Routes) Less(i, j int) bool { return r[i].Path < r[j].Path }
+func (r RoutesSchema) Len() int           { return len(r) }
+func (r RoutesSchema) Swap(i, j int)      { r[i], r[j] = r[j], r[i] }
+func (r RoutesSchema) Less(i, j int) bool { return r[i].Path < r[j].Path }
 
 type Schema struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Example     string      `json:"example"`
-	Version     string      `json:"version,omitempty"`
-	Resources   []*Resource `json:"resources"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Example     string           `json:"example"`
+	Version     string           `json:"version,omitempty"`
+	Resources   []*ResourceSchema `json:"resources"`
 }
 
-func (s *Schema) ResourceByPath(path string) *Resource {
+func (s *Schema) ResourceByPath(path string) *ResourceSchema {
 	for _, r := range s.Resources {
 		if r.Path == path {
 			return r
@@ -34,18 +34,18 @@ func (s *Schema) ResourceByPath(path string) *Resource {
 	return nil
 }
 
-type Resource struct {
-	Path        string `json:"path"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Routes      Routes `json:"routes"`
+type ResourceSchema struct {
+	Path        string      `json:"path"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Routes      RoutesSchema `json:"routes"`
 }
 
-func (r *Resource) SimplifyPath() string {
+func (r *ResourceSchema) SimplifyPath() string {
 	return simplifiedPath(r.Path)
 }
 
-func (r *Resource) Hidden() bool {
+func (r *ResourceSchema) Hidden() bool {
 	for _, route := range r.Routes {
 		if !route.Hidden {
 			return false
@@ -54,33 +54,29 @@ func (r *Resource) Hidden() bool {
 	return true
 }
 
-// FileUpload can be used as the Request() type to indicate a normal file
-// upload request.
-type FileUpload struct{}
-
-type Route struct {
-	Name        string       `json:"name"`
-	Description string       `json:"description,omitempty"`
-	Example     string       `json:"example,omitempty"`
-	Path        string       `json:"path"`
-	Method      string       `json:"method"`
-	FileUpload  bool         `json:"file_upload"`
-	RequestType reflect.Type `json:"request_type"`
-	Responses   []*Response  `json:"responses"`
-	QueryType   reflect.Type `json:"query_type"`
-	PathType    reflect.Type `json:"path_type"`
-	SecuredBy   []string     `json:"secured_by"`
+type RouteSchema struct {
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Example     string           `json:"example,omitempty"`
+	Path        string           `json:"path"`
+	Method      string           `json:"method"`
+	FileUpload  bool             `json:"file_upload"`
+	RequestType reflect.Type     `json:"request_type"`
+	Responses   []*ResponseSchema `json:"responses"`
+	QueryType   reflect.Type     `json:"query_type"`
+	PathType    reflect.Type     `json:"path_type"`
+	SecuredBy   []string         `json:"secured_by"`
 
 	Hidden bool `json:"-"` // A hint that this should be hidden from public API descriptions.
 }
 
-func (r *Route) String() string {
+func (r *RouteSchema) String() string {
 	return fmt.Sprintf("%s %s", r.Method, r.Path)
 }
 
 // DefaultResponse returns the first response with a 2xx status code, assumed
 // to be the default response.
-func (r *Route) DefaultResponse() *Response {
+func (r *RouteSchema) DefaultResponse() *ResponseSchema {
 	for _, response := range r.Responses {
 		if response.Status >= 200 && response.Status <= 299 {
 			return response
@@ -89,7 +85,7 @@ func (r *Route) DefaultResponse() *Response {
 	return nil
 }
 
-type Response struct {
+type ResponseSchema struct {
 	Status      int          `json:"status"`
 	Description string       `json:"description"`
 	ContentType string       `json:"content_type,omitempty"`
@@ -109,7 +105,7 @@ func setStructType(types map[reflect.Type]struct{}, t reflect.Type) {
 	}
 }
 
-// Types returns a set of all referenced types used in the schema.
+// Types returns a set of all referenced types used in the
 func (s *Schema) Types() []reflect.Type {
 	types := map[reflect.Type]struct{}{}
 	for _, resource := range s.Resources {
@@ -131,7 +127,7 @@ func (s *Schema) Types() []reflect.Type {
 }
 
 // CompilePath compiles a path into a regex and its named parameters.
-func (r *Route) CompilePath() (*regexp.Regexp, []string) {
+func (r *RouteSchema) CompilePath() (*regexp.Regexp, []string) {
 	routePattern := "^" + r.Path + "$"
 	params := []string{}
 	for _, match := range pathTransform.FindAllStringSubmatch(routePattern, -1) {
@@ -148,11 +144,11 @@ func (r *Route) CompilePath() (*regexp.Regexp, []string) {
 	return pattern, params
 }
 
-func (r *Route) SimplifyPath() string {
+func (r *RouteSchema) SimplifyPath() string {
 	return simplifiedPath(r.Path)
 }
 
-func (r *Route) InterpolatePath(args ...interface{}) string {
+func (r *RouteSchema) InterpolatePath(args ...interface{}) string {
 	return InterpolatePath(r.Path, args...)
 }
 

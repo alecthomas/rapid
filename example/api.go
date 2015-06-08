@@ -8,7 +8,6 @@ import (
 	"github.com/alecthomas/go-logging"
 
 	"github.com/alecthomas/rapid"
-	"github.com/alecthomas/rapid/schema"
 )
 
 var (
@@ -20,7 +19,7 @@ type User struct {
 	Name string
 }
 
-func UserServiceDefinition() *schema.Schema {
+func UserServiceDefinition() *rapid.Schema {
 	api := rapid.Define("Users").Description("An API for managing users.")
 	users := api.Resource("Users", "/users")
 	users.Route("CreateUser", "/users").

@@ -5,30 +5,28 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
-
-	"github.com/alecthomas/rapid/schema"
 )
 
 type definition struct {
-	model *schema.Schema
+	model *Schema
 }
 
 // Define a new service.
 func Define(name string) *definition {
 	return &definition{
-		model: &schema.Schema{
+		model: &Schema{
 			Name: name,
 		},
 	}
 }
 
-// Description of the schema.
+// Description of the
 func (d *definition) Description(text string) *definition {
 	d.model.Description = text
 	return d
 }
 
-// Example of using the schema.
+// Example of using the
 func (d *definition) Example(text string) *definition {
 	d.model.Example = text
 	return d
@@ -40,7 +38,7 @@ func (d *definition) Version(version string) *definition {
 }
 
 func (d *definition) Resource(name, path string) *resource {
-	r := &resource{&schema.Resource{
+	r := &resource{&ResourceSchema{
 		Name: name,
 		Path: path,
 	}}
@@ -69,8 +67,8 @@ seek:
 	return res.Route(name, path)
 }
 
-// Build a RAPID schema.
-func (d *definition) Build() *schema.Schema {
+// Build a RAPID
+func (d *definition) Build() *Schema {
 	for _, resource := range d.model.Resources {
 		for _, route := range resource.Routes {
 			if route.Method == "" {
@@ -98,7 +96,7 @@ func (d *definition) Build() *schema.Schema {
 				if route.Method == "GET" {
 					panic(fmt.Sprintf("no successful responses defined for %s", route))
 				}
-				route.Responses = append(route.Responses, &schema.Response{
+				route.Responses = append(route.Responses, &ResponseSchema{
 					Status:      http.StatusNoContent,
 					ContentType: "application/json",
 				})
@@ -109,7 +107,7 @@ func (d *definition) Build() *schema.Schema {
 }
 
 type resource struct {
-	model *schema.Resource
+	model *ResourceSchema
 }
 
 // Description of resource.
@@ -126,12 +124,12 @@ func (r *resource) Route(name, path string) *route {
 }
 
 type route struct {
-	model *schema.Route
+	model *RouteSchema
 }
 
 func newRoute(name, path string) *route {
 	return &route{
-		model: &schema.Route{
+		model: &RouteSchema{
 			Name: name,
 			Path: path,
 		}}
@@ -187,7 +185,7 @@ func (r *route) Example(text string) *route {
 
 // Query sets the type used to decode a request's query parameters. Each
 // parameter is deserialized into the corresponding parameter using
-// gorilla/schema.
+// gorilla/
 func (r *route) Query(query interface{}) *route {
 	r.model.QueryType = reflect.TypeOf(query)
 	return r
@@ -195,7 +193,7 @@ func (r *route) Query(query interface{}) *route {
 
 // Path sets the type used to decode a request's path parameters. Each
 // parameter is deserialized into the corresponding parameter using
-// gorilla/schema.
+// gorilla/
 func (r *route) Path(params interface{}) *route {
 	r.model.PathType = reflect.TypeOf(params)
 	return r
@@ -236,7 +234,7 @@ func (r *route) SecuredBy(names ...string) *route {
 }
 
 type response struct {
-	model *schema.Response
+	model *ResponseSchema
 }
 
 func Response(status int, typ interface{}) *response {
@@ -245,7 +243,7 @@ func Response(status int, typ interface{}) *response {
 		t = reflect.TypeOf(typ)
 	}
 	return &response{
-		&schema.Response{
+		&ResponseSchema{
 			Status:      status,
 			Type:        t,
 			ContentType: "application/json",
