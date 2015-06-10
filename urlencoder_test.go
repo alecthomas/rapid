@@ -22,5 +22,5 @@ func TestURLEncoder(t *testing.T) {
 		Duration: time.Hour,
 	}
 	v := EncodeStructToURLValues(s)
-	assert.Equal(t, "array=1&array=2&array=3&id=10&name=test&duration=1h", v.Encode())
+	assert.Equal(t, "array=1&array=2&array=3&duration=1h0m0s&id=10&name=test", v.Encode())
 }

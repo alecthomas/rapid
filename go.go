@@ -25,11 +25,11 @@ import (
 {{if .Schema.Description}}// {{.Schema.Name|visibility}}Client - {{.Schema.Description}}{{end}}
 type {{.Schema.Name|visibility}}Client struct {
 	C rapid.Client
-	Codec rapid.RequestResponseCodecFactory
+	Codec rapid.CodecFactory
 }
 
 {{if .Schema.Description}}// {{"Dial"|visibility}}{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API.{{end}}
-func {{"Dial"|visibility}}{{.Schema.Name}}(codec rapid.RequestResponseCodecFactory, url string) (*{{.Schema.Name|visibility}}Client, error) {
+func {{"Dial"|visibility}}{{.Schema.Name}}(codec rapid.CodecFactory, url string) (*{{.Schema.Name|visibility}}Client, error) {
 	c, err := rapid.Dial(codec, url)
 	if err != nil {
 		return nil, err
@@ -39,7 +39,7 @@ func {{"Dial"|visibility}}{{.Schema.Name}}(codec rapid.RequestResponseCodecFacto
 
 
 {{if .Schema.Description}}// {{"New"|visibility}}{{.Schema.Name}}Client creates a new client for the {{.Schema.Name}} API using an existing rapid.Client.{{end}}
-func {{"New"|visibility}}{{.Schema.Name}}Client(codec rapid.RequestResponseCodecFactory, client rapid.Client) *{{.Schema.Name|visibility}}Client {
+func {{"New"|visibility}}{{.Schema.Name}}Client(codec rapid.CodecFactory, client rapid.Client) *{{.Schema.Name|visibility}}Client {
 	return &{{.Schema.Name|visibility}}Client{C: client, Codec: codec}
 }
 
@@ -216,11 +216,11 @@ func goPathNames(t reflect.Type) []string {
 }
 
 func goTypeDecl(pkg string, name string, t reflect.Type) string {
-	if t.Name() != "" {
-		return fmt.Sprintf("%s := %s{}", name, goTypeReference(pkg, t))
-	}
 	switch t.Kind() {
 	case reflect.Slice:
+		if t.Name() != "" {
+			return fmt.Sprintf("%s := %s{}", name, goTypeReference(pkg, t))
+		}
 		return fmt.Sprintf("%s := []%s{}", name, goTypeReference(pkg, t.Elem()))
 
 	case reflect.Struct:

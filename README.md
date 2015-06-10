@@ -75,16 +75,16 @@ type ResponseCodec interface {
   DecodeResponse(r *http.Response) error
 }
 
-type RequestResponseCodec interface {
+type Codec interface {
   RequestCodec
   ResponseCodec
 }
 
-type RequestResponseCodecFactory func(v interface{}) RequestResponseCodec
+type CodecFactory func(v interface{}) Codec
 ```
 
-The included implementation of `RequestResponseCodec` and
-`RequestResponseCodecFactory` supports a JSON-based API. This can be
+The included implementation of `Codec` and
+`CodecFactory` supports a JSON-based API. This can be
 completely replaced by your own implementation (eg. encoding using Protocol
 Buffers, Avro, Thrift, etc.).
 

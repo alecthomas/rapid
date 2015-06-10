@@ -8,11 +8,11 @@ import (
 // UsersClient - An API for managing users.
 type UsersClient struct {
 	C     rapid.Client
-	Codec rapid.RequestResponseCodecFactory
+	Codec rapid.CodecFactory
 }
 
 // DialUsersClient creates a new client for the Users API.
-func DialUsers(codec rapid.RequestResponseCodecFactory, url string) (*UsersClient, error) {
+func DialUsers(codec rapid.CodecFactory, url string) (*UsersClient, error) {
 	c, err := rapid.Dial(codec, url)
 	if err != nil {
 		return nil, err
@@ -21,7 +21,7 @@ func DialUsers(codec rapid.RequestResponseCodecFactory, url string) (*UsersClien
 }
 
 // NewUsersClient creates a new client for the Users API using an existing rapid.Client.
-func NewUsersClient(codec rapid.RequestResponseCodecFactory, client rapid.Client) *UsersClient {
+func NewUsersClient(codec rapid.CodecFactory, client rapid.Client) *UsersClient {
 	return &UsersClient{C: client, Codec: codec}
 }
 

@@ -40,7 +40,7 @@ func MustClient(client Client, err error) Client {
 
 // A RequestTemplate can be used to build a new http.Request from scratch.
 type RequestTemplate struct {
-	codec   RequestResponseCodecFactory
+	codec   CodecFactory
 	method  string
 	path    string
 	headers http.Header
@@ -61,7 +61,7 @@ func (r *RequestTemplate) String() string {
 }
 
 type RequestBuilder struct {
-	codec    RequestResponseCodecFactory
+	codec    CodecFactory
 	filename string
 	method   string
 	path     string
@@ -73,7 +73,7 @@ type RequestBuilder struct {
 // constructs for building rapid-conformant HTTP requests.
 // Parameters in the form {name} are interpolated into the path from params.
 // eg. Request(codec, "GET", "/{id}", 10)
-func Request(codec RequestResponseCodecFactory, method, path string, params ...interface{}) *RequestBuilder {
+func Request(codec CodecFactory, method, path string, params ...interface{}) *RequestBuilder {
 	if codec == nil {
 		codec = DefaultCodecFactory
 	}
@@ -121,7 +121,7 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
-	headers, bodyr, err := MakeRequestCodec(r.body, r.codec).EncodeRequest()
+	headers, bodyr, err := r.codec.Request(r.body).EncodeRequest()
 	if err != nil {
 		panic(err)
 	}
@@ -142,14 +142,14 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 // A BasicClient is a simple client that issues one request per API call. It
 // does not perform retries.
 type BasicClient struct {
-	codec      RequestResponseCodecFactory
+	codec      CodecFactory
 	url        string
 	beforeHook BeforeClientRequest
 	httpClient *http.Client
 }
 
 // Dial creates a new RAPID client with url as its endpoint, using the given codec.
-func Dial(codec RequestResponseCodecFactory, url string) (*BasicClient, error) {
+func Dial(codec CodecFactory, url string) (*BasicClient, error) {
 	if !strings.HasSuffix(url, "/") {
 		url += "/"
 	}
@@ -176,7 +176,7 @@ func (b *BasicClient) Do(req *RequestTemplate, resp interface{}) error {
 	if err != nil {
 		return err
 	}
-	return MakeResponseCodec(resp, b.codec).DecodeResponse(response)
+	return b.codec.Response(resp).DecodeResponse(response)
 }
 
 func (b *BasicClient) HTTPClient() *http.Client {

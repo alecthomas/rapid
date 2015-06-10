@@ -30,6 +30,10 @@ func (t *testServer) Index(params Params, req *indexRequest) (*indexResponse, er
 	return &indexResponse{req.ID * 2}, ErrorForStatus(http.StatusOK)
 }
 
+func (t *testServer) Fails() error {
+	return ErrorWithHeaders(http.StatusBadRequest, "bad request", http.Header{"X-Error": {"bad request"}})
+}
+
 func TestServerMethodDoesNotExist(t *testing.T) {
 	svc := Define("Test")
 	svc.Route("Invalid", "/").Get().Response(http.StatusOK, nil)
@@ -60,7 +64,7 @@ func TestServerCallsMethod(t *testing.T) {
 	assert.Equal(t, Params{"id": "hello"}, test.params)
 	assert.Equal(t, 10, test.id)
 	assert.Equal(t, 200, w.Code)
-	assert.Equal(t, `{"s":200,"d":{"ID":20}}`, w.Body.String())
+	assert.Equal(t, "{\"ID\":20}\n", w.Body.String())
 }
 
 func TestPatternRegex(t *testing.T) {
@@ -82,6 +86,19 @@ func TestPatternRegex(t *testing.T) {
 	svr.ServeHTTP(w, r)
 	assert.True(t, test.called)
 	assert.Equal(t, Params{"id": "123"}, test.params)
+}
+
+func TestErrorResponse(t *testing.T) {
+	svc := Define("Test")
+	svc.Route("Fails", `/`).Get().Response(200, nil)
+	test := &testServer{}
+	svr, _ := NewServer(svc.Build(), test)
+	r, _ := http.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	svr.ServeHTTP(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, "bad request", w.Header().Get("X-Error"))
+	assert.Equal(t, "{\"e\":\"bad request\"}\n", string(w.Body.Bytes()))
 }
 
 type testChunkedServer struct {

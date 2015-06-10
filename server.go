@@ -56,21 +56,32 @@ func (l *loggerSink) Errorf(fmt string, args ...interface{})   {}
 
 type CloseNotifierChannel <-chan bool
 
+// An error-conformant type that can return a HTTP status code, a message, and
+// optional headers.
 type HTTPStatus struct {
-	Status  int
-	Message string
-}
-
-func ErrorForStatus(status int) error {
-	return &HTTPStatus{status, http.StatusText(status)}
-}
-
-func Error(status int, message string) error {
-	return &HTTPStatus{status, message}
+	Status  int         `json:"status"`
+	Message string      `json:"error"`
+	Headers http.Header `json:"-"`
 }
 
 func (h *HTTPStatus) Error() string {
 	return h.Message
+}
+
+func ErrorForStatus(status int) error {
+	return Error(status, http.StatusText(status))
+}
+
+func Error(status int, message string) error {
+	return ErrorWithHeaders(status, message, http.Header{})
+}
+
+func ErrorForStatusWithHeaders(status int, headers http.Header) error {
+	return &HTTPStatus{status, http.StatusText(status), headers}
+}
+
+func ErrorWithHeaders(status int, message string, headers http.Header) error {
+	return &HTTPStatus{status, message, headers}
 }
 
 type Params map[string]string
@@ -104,7 +115,7 @@ type BeforeHandlerFunc interface{}
 type Server struct {
 	schema        *Schema
 	matches       []*routeMatch
-	codec         RequestResponseCodecFactory
+	codec         CodecFactory
 	log           Logger
 	Injector      inject.Injector
 	handler       interface{}
@@ -140,10 +151,12 @@ func NewServer(schema *Schema, handler interface{}) (*Server, error) {
 	return s, nil
 }
 
-func (s *Server) Codec(codec RequestResponseCodecFactory) *Server {
+// Specify the default CodecFactory for the server.
+func (s *Server) Codec(codec CodecFactory) *Server {
 	s.codec = codec
 	return s
 }
+
 func (s *Server) Logger(log Logger) *Server {
 	s.log = log
 	return s
@@ -175,7 +188,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Match URL and method.
 	match, parts := s.match(r)
 	if match == nil {
-		MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusNotFound, nil)
+		s.codec.Response(nil).EncodeResponse(r, w, http.StatusNotFound, nil)
 		return
 	}
 
@@ -191,12 +204,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		err := schemadecoder.Decode(path, values)
 		if err != nil {
-			MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
+			s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
 			return
 		}
 		if v, ok := path.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
+				s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
 				return
 			}
 		}
@@ -208,12 +221,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		query := reflect.New(indirect(match.route.QueryType)).Interface()
 		err := schemadecoder.Decode(query, r.URL.Query())
 		if err != nil {
-			MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
+			s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
 			return
 		}
 		if v, ok := query.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
+				s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
 				return
 			}
 		}
@@ -223,14 +236,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Decode request body, if any.
 	if match.route.RequestType != nil {
 		req := reflect.New(indirect(match.route.RequestType)).Interface()
-		err := MakeRequestCodec(req, s.codec).DecodeRequest(r)
+		err := s.codec.Request(req).DecodeRequest(r)
 		if err != nil {
-			MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
+			s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
 			return
 		}
 		if v, ok := req.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, http.StatusBadRequest, err)
+				s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
 				return
 			}
 		}
@@ -247,7 +260,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if cn, ok := w.(http.CloseNotifier); ok {
 		// WriteError(w, http.StatusInternalServerError, errors.New("HTTP writer does not support close notifications"))
 		// return
-		closeNotifier = (CloseNotifierChannel)(cn.CloseNotify())
+		closeNotifier = CloseNotifierChannel(cn.CloseNotify())
 		i.Map(closeNotifier)
 	}
 
@@ -260,7 +273,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !rerr.IsNil() {
 			err = rerr.Interface().(error)
 			if err != nil {
-				MakeResponseCodec(nil, s.codec).EncodeResponse(r, w, 500, err)
+				s.codec.Response(nil).EncodeResponse(r, w, 500, err)
 				return
 			}
 		}
@@ -314,7 +327,7 @@ func (s *Server) handleScalar(route *RouteSchema, closeNotifier CloseNotifierCha
 	if !rerr.IsNil() {
 		err = rerr.Interface().(error)
 	}
-	MakeResponseCodec(data, s.codec).EncodeResponse(r, w, 0, err)
+	s.codec.Response(data).EncodeResponse(r, w, 0, err)
 }
 
 func (s *Server) match(r *http.Request) (*routeMatch, Params) {
