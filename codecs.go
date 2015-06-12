@@ -107,12 +107,14 @@ func DefaultCodecFactory(v interface{}) Codec {
 	return &codecWrapper{&defaultCodec{v}}
 }
 
-var contentTypeHeader = http.Header{"Content-Type": {"application/json"}, "Accept": {"application/json"}}
-
 func (d *defaultCodec) EncodeRequest() (http.Header, io.ReadCloser, error) {
 	body, err := json.Marshal(d.v)
 	if err != nil {
 		return nil, nil, err
+	}
+	contentTypeHeader := http.Header{
+		"Content-Type": {"application/json"},
+		"Accept":       {"application/json"},
 	}
 	return contentTypeHeader, ioutil.NopCloser(bytes.NewReader(body)), nil
 }
@@ -210,7 +212,7 @@ type RawData []byte
 
 func (d *RawData) EncodeRequest() (headers http.Header, body io.ReadCloser, err error) {
 	headers = http.Header{}
-	headers.Add("Content-Type", "application/octet-stream")
+	headers.Set("Content-Type", "application/octet-stream")
 	return headers, ioutil.NopCloser(bytes.NewReader(*d)), nil
 }
 
@@ -225,6 +227,7 @@ func (d *RawData) DecodeRequest(r *http.Request) error {
 }
 
 func (d *RawData) EncodeResponse(r *http.Request, w http.ResponseWriter, status int, err error) error {
+	w.Header().Set("Content-Type", "application/octet-stream")
 	_, e := io.Copy(w, bytes.NewReader(*d))
 	return e
 }

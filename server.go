@@ -112,6 +112,9 @@ type routeMatch struct {
 // A function with the signature f(...) error. Arguments can be injected.
 type BeforeHandlerFunc interface{}
 
+// A function with the signature f(...) error. Arguments can be injected.
+type AfterHandlerFunc interface{}
+
 type Server struct {
 	schema        *Schema
 	matches       []*routeMatch
@@ -120,6 +123,7 @@ type Server struct {
 	Injector      inject.Injector
 	handler       interface{}
 	beforeHandler BeforeHandlerFunc
+	afterHandler  AfterHandlerFunc
 }
 
 func NewServer(schema *Schema, handler interface{}) (*Server, error) {
@@ -167,6 +171,15 @@ func (s *Server) BeforeHandler(before BeforeHandlerFunc) *Server {
 	return s
 }
 
+// Register an injectable function to be called after the handler method is
+// called but before the response is encoded. If the handler method writes
+// its own response, this callback will not be called.
+func (s *Server) AfterHandler(after AfterHandlerFunc) *Server {
+	s.afterHandler = after
+	return s
+
+}
+
 // Close underlying handler if it supports io.Closer.
 func (s *Server) Close() error {
 	if closer, ok := s.handler.(io.Closer); ok {
@@ -188,7 +201,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Match URL and method.
 	match, parts := s.match(r)
 	if match == nil {
-		s.codec.Response(nil).EncodeResponse(r, w, http.StatusNotFound, nil)
+		s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, http.StatusNotFound, nil))
 		return
 	}
 
@@ -204,12 +217,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		err := schemadecoder.Decode(path, values)
 		if err != nil {
-			s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
+			s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err))
 			return
 		}
 		if v, ok := path.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
+				s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err))
 				return
 			}
 		}
@@ -221,12 +234,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		query := reflect.New(indirect(match.route.QueryType)).Interface()
 		err := schemadecoder.Decode(query, r.URL.Query())
 		if err != nil {
-			s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
+			s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err))
 			return
 		}
 		if v, ok := query.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
+				s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err))
 				return
 			}
 		}
@@ -235,18 +248,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Decode request body, if any.
 	if match.route.RequestType != nil {
-		req := reflect.New(indirect(match.route.RequestType)).Interface()
-		err := s.codec.Request(req).DecodeRequest(r)
+		req, reqi := makeValueAndInterface(match.route.RequestType)
+		fmt.Println(req, reqi)
+		err := s.codec(reqi).DecodeRequest(r)
 		if err != nil {
-			s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
+			s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err))
 			return
 		}
 		if v, ok := req.(Validator); ok {
 			if err := v.Validate(); err != nil {
-				s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err)
+				s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err))
 				return
 			}
 		}
+		fmt.Printf("Map(%v)\n", req)
 		i.Map(req)
 	}
 
@@ -273,7 +288,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !rerr.IsNil() {
 			err = rerr.Interface().(error)
 			if err != nil {
-				s.codec.Response(nil).EncodeResponse(r, w, 500, err)
+				s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, 500, err))
 				return
 			}
 		}
@@ -296,6 +311,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		panic(fmt.Errorf("handler method %s.%s should return (<response>, <error>)", match.method.Type(), match.route.Name))
 	}
+
+	if s.afterHandler != nil {
+		results, err := i.Invoke(s.afterHandler)
+		if err != nil {
+			panic(err.Error())
+		}
+		rerr := results[0]
+		if !rerr.IsNil() {
+			err = rerr.Interface().(error)
+			if err != nil {
+				s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, 500, err))
+				return
+			}
+		}
+	}
+
 	s.log.Debugf("%s %s -> %v", r.Method, r.URL, result[1].Interface())
 	s.handleScalar(match.route, closeNotifier, w, r, result[0], result[1])
 }
@@ -327,7 +358,14 @@ func (s *Server) handleScalar(route *RouteSchema, closeNotifier CloseNotifierCha
 	if !rerr.IsNil() {
 		err = rerr.Interface().(error)
 	}
-	s.codec.Response(data).EncodeResponse(r, w, 0, err)
+	data, datai := valueAndInterface(data)
+	s.maybeLogError(s.codec.Response(datai).EncodeResponse(r, w, 0, err))
+}
+
+func (s *Server) maybeLogError(err error) {
+	if err != nil {
+		s.log.Errorf("%s", err)
+	}
 }
 
 func (s *Server) match(r *http.Request) (*routeMatch, Params) {
@@ -345,4 +383,36 @@ func (s *Server) match(r *http.Request) (*routeMatch, Params) {
 		}
 	}
 	return nil, nil
+}
+
+// These two functions are required to handle interface methods on value
+// types. eg. RawData. Annoying. Basically, if we have a value but the
+// interface methods have pointer receivers, we need to use a pointer to the
+// value to check interface implementation. But to complicate life, you can't
+// take the address of a reflected value. Brilliant.
+
+func valueAndInterface(n interface{}) (interface{}, interface{}) {
+	t := reflect.TypeOf(n)
+	switch t.Kind() {
+	case reflect.Ptr:
+		v := reflect.ValueOf(n)
+		return v.Interface(), v.Interface()
+	default:
+		vpv := reflect.New(t)
+		vpv.Elem().Set(reflect.ValueOf(n))
+		return vpv.Elem().Interface(), vpv.Interface()
+	}
+}
+
+func makeValueAndInterface(t reflect.Type) (interface{}, interface{}) {
+	switch t.Kind() {
+	case reflect.Slice:
+		return valueAndInterface(reflect.MakeSlice(t, 0, 0).Interface())
+	case reflect.Map:
+		return valueAndInterface(reflect.MakeMap(t).Interface())
+	case reflect.Ptr:
+		return valueAndInterface(reflect.New(t.Elem()).Interface())
+	default:
+		return valueAndInterface(reflect.New(t).Elem().Interface())
+	}
 }

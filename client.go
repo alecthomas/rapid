@@ -176,6 +176,9 @@ func (b *BasicClient) Do(req *RequestTemplate, resp interface{}) error {
 	if err != nil {
 		return err
 	}
+	if resp == nil {
+		return nil
+	}
 	return b.codec.Response(resp).DecodeResponse(response)
 }
 
