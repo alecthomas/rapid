@@ -389,6 +389,9 @@ func (s *Server) match(r *http.Request) (*routeMatch, Params) {
 // take the address of a reflected value. Brilliant.
 
 func valueAndInterface(n interface{}) (interface{}, interface{}) {
+	if n == nil {
+		return nil, nil
+	}
 	t := reflect.TypeOf(n)
 	switch t.Kind() {
 	case reflect.Ptr:
