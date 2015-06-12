@@ -14,9 +14,13 @@ type User struct {
   Name string
 }
 
+type IDPath struct {
+  ID string `schema:"id"`
+}
+
 users := rapid.Define("Users")
 users.Route("ListUsers").Get("/users").Response(http.StatusOK, []*User{})
-users.Route("GetUser").Get("/users/{id}").Response(http.StatusOK, &User{})
+users.Route("GetUser").Get("/users/{id}").Path(&IDPath{}).Response(http.StatusOK, &User{})
 users.Route("CreateUser").Post("/users").Request(http.StatusCreated, &User{})
 ```
 
@@ -38,7 +42,7 @@ func (u *UserService) CreateUser(user *User) error {
   return rapid.ErrorForStatus(403)
 }
 
-func (u *UserService) GetUser(params rapid.Params) (*User, error) {
+func (u *UserService) GetUser(path *IDPath) (*User, error) {
   return nil, rapid.ErrorForStatus(403)
 }
 ```

@@ -249,7 +249,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Decode request body, if any.
 	if match.route.RequestType != nil {
 		req, reqi := makeValueAndInterface(match.route.RequestType)
-		fmt.Println(req, reqi)
 		err := s.codec(reqi).DecodeRequest(r)
 		if err != nil {
 			s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err))
@@ -261,7 +260,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		fmt.Printf("Map(%v)\n", req)
 		i.Map(req)
 	}
 
@@ -375,7 +373,6 @@ func (s *Server) match(r *http.Request) (*routeMatch, Params) {
 			if matches != nil {
 				params := Params{}
 				for i, k := range match.params {
-					// fmt.Printf("%s = %s (%d)\n", k, matches[i+1], i+1)
 					params[k] = matches[i+1]
 				}
 				return match, params
