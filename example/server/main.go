@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	server.SetLogger(log)
+	server.Logger(log)
 	fmt.Println("Starting on http://0.0.0.0:8090")
 	kingpin.FatalIfError(http.ListenAndServe(":8090", server), "failed to start server")
 }

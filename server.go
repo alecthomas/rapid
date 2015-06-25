@@ -249,18 +249,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Decode request body, if any.
 	if match.route.RequestType != nil {
 		req, reqi := makeValueAndInterface(match.route.RequestType)
-		err := s.codec(reqi).DecodeRequest(r)
+		err := s.codec.Request(reqi).DecodeRequest(r)
 		if err != nil {
 			s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err))
 			return
 		}
-		if v, ok := req.(Validator); ok {
+		if v, ok := reqi.(Validator); ok {
 			if err := v.Validate(); err != nil {
 				s.maybeLogError(s.codec.Response(nil).EncodeResponse(r, w, http.StatusBadRequest, err))
 				return
 			}
 		}
-		i.Map(req)
+		i.Map(req())
 	}
 
 	i.MapTo(i, (*inject.Injector)(nil))
@@ -356,7 +356,7 @@ func (s *Server) handleScalar(route *RouteSchema, closeNotifier CloseNotifierCha
 	if !rerr.IsNil() {
 		err = rerr.Interface().(error)
 	}
-	data, datai := valueAndInterface(data)
+	_, datai := valueAndInterface(data)
 	s.maybeLogError(s.codec.Response(datai).EncodeResponse(r, w, 0, err))
 }
 
@@ -388,23 +388,24 @@ func (s *Server) match(r *http.Request) (*routeMatch, Params) {
 // value to check interface implementation. But to complicate life, you can't
 // take the address of a reflected value. Brilliant.
 
-func valueAndInterface(n interface{}) (interface{}, interface{}) {
+func valueAndInterface(n interface{}) (func() interface{}, interface{}) {
 	if n == nil {
 		return nil, nil
 	}
 	t := reflect.TypeOf(n)
 	switch t.Kind() {
 	case reflect.Ptr:
-		v := reflect.ValueOf(n)
-		return v.Interface(), v.Interface()
+		v := reflect.ValueOf(n).Interface()
+		return func() interface{} { return v }, v
+
 	default:
 		vpv := reflect.New(t)
 		vpv.Elem().Set(reflect.ValueOf(n))
-		return vpv.Elem().Interface(), vpv.Interface()
+		return func() interface{} { return reflect.Indirect(vpv).Interface() }, vpv.Interface()
 	}
 }
 
-func makeValueAndInterface(t reflect.Type) (interface{}, interface{}) {
+func makeValueAndInterface(t reflect.Type) (func() interface{}, interface{}) {
 	switch t.Kind() {
 	case reflect.Slice:
 		return valueAndInterface(reflect.MakeSlice(t, 0, 0).Interface())

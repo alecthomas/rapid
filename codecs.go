@@ -285,7 +285,9 @@ func inferStatus(r *http.Request, status int, err error) (int, error) {
 	} else if status == 0 {
 		// If it's any other error type, set 500 and continue.
 		status = http.StatusInternalServerError
-		err = ErrorForStatus(status)
+		if err == nil {
+			err = ErrorForStatus(status)
+		}
 	}
 	return status, err
 }

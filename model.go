@@ -25,6 +25,26 @@ type Schema struct {
 	Resources   []*ResourceSchema `json:"resources"`
 }
 
+func (s *Schema) RouteByName(name string) *RouteSchema {
+	for _, res := range s.Resources {
+		for _, route := range res.Routes {
+			if route.Name == name {
+				return route
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Schema) ResourceByName(name string) *ResourceSchema {
+	for _, r := range s.Resources {
+		if r.Name == name {
+			return r
+		}
+	}
+	return nil
+}
+
 func (s *Schema) ResourceByPath(path string) *ResourceSchema {
 	for _, r := range s.Resources {
 		if r.Path == path {
@@ -128,7 +148,28 @@ func (s *Schema) Types() []reflect.Type {
 
 // CompilePath compiles a path into a regex and its named parameters.
 func (r *RouteSchema) CompilePath() (*regexp.Regexp, []string) {
-	routePattern := "^" + r.Path + "$"
+	return CompilePath(r.Path)
+}
+
+func (r *RouteSchema) SimplifyPath() string {
+	return simplifiedPath(r.Path)
+}
+
+func (r *RouteSchema) InterpolatePath(args ...interface{}) string {
+	return InterpolatePath(r.Path, args...)
+}
+
+func (r *RouteSchema) MatchPath(path string) []string {
+	return MatchPath(r.Path, path)
+}
+
+func MatchPath(pattern string, path string) []string {
+	rx, _ := CompilePath(pattern)
+	return rx.FindStringSubmatch(path)
+}
+
+func CompilePath(path string) (*regexp.Regexp, []string) {
+	routePattern := "^" + path + "$"
 	params := []string{}
 	for _, match := range pathTransform.FindAllStringSubmatch(routePattern, -1) {
 		pattern := `([^/]+)`
@@ -142,14 +183,6 @@ func (r *RouteSchema) CompilePath() (*regexp.Regexp, []string) {
 	}
 	pattern := regexp.MustCompile(routePattern)
 	return pattern, params
-}
-
-func (r *RouteSchema) SimplifyPath() string {
-	return simplifiedPath(r.Path)
-}
-
-func (r *RouteSchema) InterpolatePath(args ...interface{}) string {
-	return InterpolatePath(r.Path, args...)
 }
 
 func InterpolatePath(path string, args ...interface{}) string {

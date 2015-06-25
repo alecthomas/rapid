@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -176,4 +177,27 @@ func TestQueryDecode(t *testing.T) {
 	w = httptest.NewRecorder()
 	svr.ServeHTTP(w, r)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestMakeValueAndInterface(t *testing.T) {
+	hello := RawData("hello")
+	b := bytes.NewReader(hello)
+	r, _ := http.NewRequest("POST", "/", b)
+	v, i := makeValueAndInterface(reflect.TypeOf(RawData{}))
+	c, ok := i.(RequestCodec)
+	assert.True(t, ok)
+	err := c.DecodeRequest(r)
+	assert.NoError(t, err)
+	assert.Equal(t, hello, v())
+	assert.Equal(t, hello, reflect.ValueOf(i).Elem().Interface())
+}
+
+func TestValueAndInterface(t *testing.T) {
+	b := RawData("hello")
+	_, i := valueAndInterface(b)
+	var codec CodecFactory = DefaultCodecFactory
+	w := httptest.NewRecorder()
+	err := codec.Response(i).EncodeResponse(nil, w, 0, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, b, RawData(w.Body.Bytes()))
 }

@@ -126,4 +126,5 @@ func (u *UserService) Changes(cancel rapid.CloseNotifierChannel) (chan int, chan
 
 func (u *UserService) SetUserAvatar(file *rapid.FileUpload) error {
 	defer file.Reader.Close()
+	return nil
 }

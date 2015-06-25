@@ -121,7 +121,8 @@ func (r *RequestBuilder) Build() *RequestTemplate {
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
-	headers, bodyr, err := r.codec.Request(r.body).EncodeRequest()
+	_, bi := valueAndInterface(r.body)
+	headers, bodyr, err := r.codec.Request(bi).EncodeRequest()
 	if err != nil {
 		panic(err)
 	}
@@ -179,7 +180,8 @@ func (b *BasicClient) Do(req *RequestTemplate, resp interface{}) error {
 	if resp == nil {
 		return nil
 	}
-	return b.codec.Response(resp).DecodeResponse(response)
+	_, respi := valueAndInterface(resp)
+	return b.codec.Response(respi).DecodeResponse(response)
 }
 
 func (b *BasicClient) HTTPClient() *http.Client {
